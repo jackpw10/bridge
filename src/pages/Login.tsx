@@ -58,9 +58,6 @@ export function LoginPage() {
         <Button type="submit" className="w-full">
           Sign in
         </Button>
-        <p className="text-xs text-slate-400 text-center">
-          Default accounts: admin / admin · user / user
-        </p>
       </form>
     </div>
   );

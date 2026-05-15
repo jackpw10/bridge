@@ -16,14 +16,10 @@ export const defaultUsers: User[] = [
   {
     id: 'u_admin',
     username: 'admin',
+    firstName: 'Admin',
+    lastName: 'User',
     passwordHash: hashPassword('admin'),
     role: 'admin',
-  },
-  {
-    id: 'u_demo',
-    username: 'user',
-    passwordHash: hashPassword('user'),
-    role: 'user',
   },
 ];
 

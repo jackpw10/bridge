@@ -14,6 +14,7 @@ import { AdminDiagnosesPage } from './pages/admin/AdminDiagnoses';
 import { AdminProcessStepsPage } from './pages/admin/AdminProcessSteps';
 import { AdminReasonsPage } from './pages/admin/AdminReasons';
 import { AdminReferenceCardsPage } from './pages/admin/AdminReferenceCards';
+import { AdminUsersPage } from './pages/admin/AdminUsers';
 import { useNotificationPoll } from './hooks/useNotificationPoll';
 import './App.css';
 
@@ -42,6 +43,14 @@ export default function App() {
           element={
             <RequireAdmin>
               <AdminHomePage />
+            </RequireAdmin>
+          }
+        />
+        <Route
+          path="/admin/users"
+          element={
+            <RequireAdmin>
+              <AdminUsersPage />
             </RequireAdmin>
           }
         />

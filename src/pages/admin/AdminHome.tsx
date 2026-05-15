@@ -4,6 +4,7 @@ import { Button } from '../../components/ui/Button';
 import { useAppStore } from '../../store/appStore';
 
 const tiles = [
+  { to: '/admin/users', title: 'Users', desc: 'Create and manage user accounts, passwords, and admin roles.' },
   { to: '/admin/workflow', title: 'Triage workflow', desc: 'Order and configure the questions users answer.' },
   { to: '/admin/facilities', title: 'Facilities', desc: 'Sites, on-site services, referral patterns, notifications.' },
   { to: '/admin/specialty', title: 'Specialty services', desc: 'LLTO / HLOC pre-questions, exception steps, Transport Advisor cards.' },

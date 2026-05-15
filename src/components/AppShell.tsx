@@ -1,14 +1,19 @@
+import { useState } from 'react';
 import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { useAppStore } from '../store/appStore';
 import { Button } from './ui/Button';
 import { NotificationsBell } from './notifications/NotificationsBell';
+import { ChangePasswordModal } from './ChangePasswordModal';
 import { cn } from '../utils/cn';
 
 export function AppShell() {
   const session = useAppStore((s) => s.session);
   const setSession = useAppStore((s) => s.setSession);
+  const users = useAppStore((s) => s.users);
   const loc = useLocation();
   const nav = useNavigate();
+
+  const [pwOpen, setPwOpen] = useState(false);
 
   function logout() {
     setSession(null);
@@ -29,6 +34,13 @@ export function AppShell() {
     </Link>
   );
 
+  const me = users.find((u) => u.id === session?.userId);
+  const displayName = me
+    ? (me.firstName || me.lastName)
+      ? `${me.firstName} ${me.lastName}`.trim()
+      : me.username
+    : session?.username ?? '';
+
   return (
     <div className="min-h-screen flex flex-col">
       <header className="bg-brand-800 text-white shadow-md">
@@ -44,10 +56,15 @@ export function AppShell() {
           </div>
           <div className="flex items-center gap-3">
             <NotificationsBell />
-            <span className="text-sm text-brand-100">
-              {session?.username}{' '}
+            <button
+              type="button"
+              onClick={() => setPwOpen(true)}
+              className="text-sm text-brand-100 hover:text-white hover:underline focus:outline-none"
+              title="Change your password"
+            >
+              {displayName}{' '}
               <span className="text-brand-300">({session?.role})</span>
-            </span>
+            </button>
             <Button size="sm" variant="secondary" onClick={logout}>
               Sign out
             </Button>
@@ -57,6 +74,7 @@ export function AppShell() {
       <main className="flex-1 max-w-7xl w-full mx-auto px-6 py-6">
         <Outlet />
       </main>
+      <ChangePasswordModal open={pwOpen} onClose={() => setPwOpen(false)} />
     </div>
   );
 }

@@ -82,7 +82,27 @@ function initIfNeeded() {
   }
 }
 
+function migrateUsers() {
+  const raw = storage.get<Array<Partial<User>>>(KEYS.users);
+  if (!raw || !Array.isArray(raw)) return;
+  let dirty = false;
+  const migrated = raw.map((u) => {
+    const next: User = {
+      id: u.id ?? '',
+      username: u.username ?? '',
+      firstName: u.firstName ?? '',
+      lastName: u.lastName ?? '',
+      passwordHash: u.passwordHash ?? '',
+      role: (u.role === 'admin' ? 'admin' : 'user'),
+    };
+    if (u.firstName === undefined || u.lastName === undefined) dirty = true;
+    return next;
+  });
+  if (dirty) storage.set(KEYS.users, migrated);
+}
+
 initIfNeeded();
+migrateUsers();
 
 export const useAppStore = create<AppState>((set) => ({
   users: load<User[]>(KEYS.users, defaultUsers),
