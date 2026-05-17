@@ -47,5 +47,7 @@ export const KEYS = {
   reasons: 'bridge.reasons',
   refCards: 'bridge.referenceCards',
   notifications: 'bridge.notifications',
+  healthAuthorities: 'bridge.healthAuthorities',
   initialized: 'bridge.initialized.v1',
+  migratedV2: 'bridge.migrated.v2',
 } as const;

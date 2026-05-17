@@ -18,7 +18,7 @@ export function AdminSpecialtyPage() {
         llto: { preQuestions: [], exceptionSteps: [] },
         hloc: { preQuestions: [], exceptionSteps: [] },
       },
-      transportAdvisor: { enabled: false, cardsByHA: {} },
+      transportAdvisor: { enabled: false, cards: [] },
     };
     setServices([...services, s]);
   }
@@ -45,7 +45,7 @@ export function AdminSpecialtyPage() {
               id,
               name: r.name ?? '',
               template: { llto: { preQuestions: [], exceptionSteps: [] }, hloc: { preQuestions: [], exceptionSteps: [] } },
-              transportAdvisor: { enabled: false, cardsByHA: {} },
+              transportAdvisor: { enabled: false, cards: [] },
             }
         );
       }

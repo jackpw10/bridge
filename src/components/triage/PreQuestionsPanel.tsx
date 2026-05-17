@@ -38,7 +38,7 @@ export function PreQuestionsPanel({ onDone }: Props) {
       >
         <div className="space-y-2">
           <Select
-            label="Is the receiving facility outside PTN?"
+            label="Was the patient accepted outside of PTN?"
             value={ptn}
             onChange={(e) => t.setAcAnswer('ptn', e.target.value)}
           >

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useMemo } from 'react';
+import { useEffect, useRef, useState, useMemo, type KeyboardEvent } from 'react';
 import { cn } from '../../utils/cn';
 import type { ComboOption } from './Combobox';
 
@@ -21,7 +21,9 @@ export function MultiSelect({
 }: Props) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
+  const [activeIndex, setActiveIndex] = useState(0);
   const ref = useRef<HTMLDivElement>(null);
+  const listRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     function onClick(e: MouseEvent) {
@@ -37,12 +39,57 @@ export function MultiSelect({
     return options.filter((o) => o.label.toLowerCase().includes(q));
   }, [options, query]);
 
+  useEffect(() => {
+    setActiveIndex(0);
+  }, [filtered, open]);
+
+  useEffect(() => {
+    if (!open) return;
+    const el = listRef.current?.querySelector<HTMLElement>(
+      `[data-idx="${activeIndex}"]`
+    );
+    el?.scrollIntoView({ block: 'nearest' });
+  }, [activeIndex, open]);
+
   const labelOf = (v: string) =>
     options.find((o) => o.value === v)?.label ?? v;
 
   function toggle(v: string) {
     if (value.includes(v)) onChange(value.filter((x) => x !== v));
     else onChange([...value, v]);
+  }
+
+  function onFilterKeyDown(e: KeyboardEvent<HTMLInputElement>) {
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      setActiveIndex((i) => Math.min(filtered.length - 1, i + 1));
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      setActiveIndex((i) => Math.max(0, i - 1));
+    } else if (e.key === 'Home') {
+      e.preventDefault();
+      setActiveIndex(0);
+    } else if (e.key === 'End') {
+      e.preventDefault();
+      setActiveIndex(filtered.length - 1);
+    } else if (e.key === 'Enter') {
+      if (filtered.length > 0) {
+        e.preventDefault();
+        const o = filtered[activeIndex];
+        if (o) toggle(o.value);
+      }
+    } else if (e.key === 'Escape') {
+      e.preventDefault();
+      setOpen(false);
+    }
+  }
+
+  // Open on ArrowDown/Enter while the trigger button is focused.
+  function onButtonKeyDown(e: KeyboardEvent<HTMLButtonElement>) {
+    if (e.key === 'ArrowDown' || e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      setOpen(true);
+    }
   }
 
   return (
@@ -55,6 +102,7 @@ export function MultiSelect({
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
+        onKeyDown={onButtonKeyDown}
         className="w-full min-h-[38px] text-left px-3 py-1.5 text-sm border border-slate-300 rounded-md bg-white shadow-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
       >
         {value.length === 0 ? (
@@ -84,38 +132,51 @@ export function MultiSelect({
         )}
       </button>
       {open && (
-        <div className="absolute z-30 mt-1 w-full bg-white border border-slate-200 rounded-md shadow-lg max-h-72 overflow-y-auto">
+        <div
+          ref={listRef}
+          className="absolute z-30 mt-1 w-full bg-white border border-slate-200 rounded-md shadow-lg max-h-72 overflow-y-auto"
+        >
           <div className="p-2 border-b border-slate-100">
             <input
               autoFocus
               value={query}
               onChange={(e) => setQuery(e.target.value)}
+              onKeyDown={onFilterKeyDown}
               placeholder="Filter…"
               className="w-full px-2 py-1 text-sm border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-brand-400"
+              role="combobox"
+              aria-expanded
             />
           </div>
           {filtered.length === 0 ? (
             <div className="px-3 py-2 text-sm text-slate-400">No matches</div>
           ) : (
-            filtered.map((o) => (
-              <label
-                key={o.value}
-                className={cn(
-                  'flex items-center px-3 py-2 text-sm hover:bg-slate-50 cursor-pointer'
-                )}
-              >
-                <input
-                  type="checkbox"
-                  checked={value.includes(o.value)}
-                  onChange={() => toggle(o.value)}
-                  className="mr-2"
-                />
-                <span>{o.label}</span>
-                {o.meta && (
-                  <span className="ml-2 text-xs text-slate-400">{o.meta}</span>
-                )}
-              </label>
-            ))
+            filtered.map((o, idx) => {
+              const isActive = idx === activeIndex;
+              const checked = value.includes(o.value);
+              return (
+                <label
+                  key={o.value}
+                  data-idx={idx}
+                  onMouseEnter={() => setActiveIndex(idx)}
+                  className={cn(
+                    'flex items-center px-3 py-2 text-sm cursor-pointer',
+                    isActive ? 'bg-brand-100' : 'hover:bg-slate-50'
+                  )}
+                >
+                  <input
+                    type="checkbox"
+                    checked={checked}
+                    onChange={() => toggle(o.value)}
+                    className="mr-2"
+                  />
+                  <span>{o.label}</span>
+                  {o.meta && (
+                    <span className="ml-2 text-xs text-slate-400">{o.meta}</span>
+                  )}
+                </label>
+              );
+            })
           )}
         </div>
       )}

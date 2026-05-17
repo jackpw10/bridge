@@ -4,6 +4,8 @@ import { AppShell } from './components/AppShell';
 import { RequireAdmin, RequireAuth } from './components/RouteGuards';
 import { TriagePage } from './pages/Triage';
 import { ResultPage } from './pages/Result';
+import { ProcessCardsPage } from './pages/ProcessCards';
+import { ReferenceCardsPage } from './pages/ReferenceCards';
 import { AdminHomePage } from './pages/admin/AdminHome';
 import { AdminWorkflowPage } from './pages/admin/AdminWorkflow';
 import { AdminFacilitiesPage } from './pages/admin/AdminFacilities';
@@ -15,6 +17,7 @@ import { AdminProcessStepsPage } from './pages/admin/AdminProcessSteps';
 import { AdminReasonsPage } from './pages/admin/AdminReasons';
 import { AdminReferenceCardsPage } from './pages/admin/AdminReferenceCards';
 import { AdminUsersPage } from './pages/admin/AdminUsers';
+import { AdminHealthAuthoritiesPage } from './pages/admin/AdminHealthAuthorities';
 import { useNotificationPoll } from './hooks/useNotificationPoll';
 import './App.css';
 
@@ -37,6 +40,8 @@ export default function App() {
         <Route index element={<Navigate to="/triage" replace />} />
         <Route path="/triage" element={<TriagePage />} />
         <Route path="/triage/result" element={<ResultPage />} />
+        <Route path="/process-cards" element={<ProcessCardsPage />} />
+        <Route path="/reference-cards" element={<ReferenceCardsPage />} />
 
         <Route
           path="/admin"
@@ -51,6 +56,14 @@ export default function App() {
           element={
             <RequireAdmin>
               <AdminUsersPage />
+            </RequireAdmin>
+          }
+        />
+        <Route
+          path="/admin/health-authorities"
+          element={
+            <RequireAdmin>
+              <AdminHealthAuthoritiesPage />
             </RequireAdmin>
           }
         />

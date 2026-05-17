@@ -38,6 +38,12 @@ export interface Workflow {
   questions: WorkflowQuestion[];
 }
 
+// ---------- Health Authorities ----------
+export interface HealthAuthority {
+  id: string;
+  name: string;
+}
+
 // ---------- Facilities ----------
 export interface ReferralPattern {
   d1: string;
@@ -50,13 +56,14 @@ export interface NotificationRequirement {
   text: string;
   llto: boolean;
   hloc: boolean;
-  svcIds: string[];
+  svcIds: string[];        // include list — empty = match any
+  excludeSvcIds: string[]; // exclude list — only consulted when svcIds is empty
 }
 
 export interface Facility {
   id: string;
   name: string;
-  healthAuthority: string;
+  healthAuthorityId: string;          // FK → HealthAuthority.id, '' if unset
   onSiteServiceIds: string[];
   referralPatterns: Record<string, ReferralPattern>;
   notificationRequirements: NotificationRequirement[];
@@ -84,6 +91,11 @@ export interface ServiceTemplate {
 }
 
 export interface TACard {
+  id: string;
+  name: string;          // free-text label for the card (e.g. "VCH/FH protocol")
+  llto: boolean;         // applies to LLTO cases?
+  hloc: boolean;         // applies to HLOC cases?
+  haIds: string[];       // applies when destination facility's HA is in this set
   steps: { id: string; text: string }[];
 }
 
@@ -96,7 +108,7 @@ export interface SpecialtyService {
   };
   transportAdvisor: {
     enabled: boolean;
-    cardsByHA: Record<string, TACard>;
+    cards: TACard[];
   };
 }
 

@@ -9,6 +9,7 @@ interface TriageRuntime {
   phase: Phase;
   acStates: Record<string, string>;
   notifsSent: boolean;
+  notes: string;
 
   setAnswer: (qid: string, value: string, subKeys?: Record<string, string>) => void;
   goPrev: () => void;
@@ -19,6 +20,7 @@ interface TriageRuntime {
   reset: () => void;
   setAcAnswer: (key: string, value: string) => void;
   markNotifsSent: () => void;
+  setNotes: (s: string) => void;
 }
 
 const initial = {
@@ -28,6 +30,7 @@ const initial = {
   phase: 'workflow' as Phase,
   acStates: {} as Record<string, string>,
   notifsSent: false,
+  notes: '',
 };
 
 export const useTriageStore = create<TriageRuntime>((set) => ({
@@ -50,4 +53,5 @@ export const useTriageStore = create<TriageRuntime>((set) => ({
   reset: () => set({ ...initial }),
   setAcAnswer: (key, value) => set((s) => ({ acStates: { ...s.acStates, [key]: value } })),
   markNotifsSent: () => set({ notifsSent: true }),
+  setNotes: (s) => set({ notes: s }),
 }));

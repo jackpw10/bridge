@@ -6,6 +6,7 @@ import { useAppStore } from '../../store/appStore';
 const tiles = [
   { to: '/admin/users', title: 'Users', desc: 'Create and manage user accounts, passwords, and admin roles.' },
   { to: '/admin/workflow', title: 'Triage workflow', desc: 'Order and configure the questions users answer.' },
+  { to: '/admin/health-authorities', title: 'Health Authorities', desc: 'The list of Health Authorities used by facilities and TA cards.' },
   { to: '/admin/facilities', title: 'Facilities', desc: 'Sites, on-site services, referral patterns, notifications.' },
   { to: '/admin/specialty', title: 'Specialty services', desc: 'LLTO / HLOC pre-questions, exception steps, Transport Advisor cards.' },
   { to: '/admin/diagnoses', title: 'Diagnoses', desc: 'Master list of diagnoses with optional notification triggers.' },

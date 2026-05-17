@@ -1,6 +1,7 @@
 import type {
   Diagnosis,
   Facility,
+  HealthAuthority,
   OverrideReason,
   ProcessSteps,
   ReferenceCard,
@@ -9,6 +10,11 @@ import type {
   Workflow,
 } from '../types';
 import { hashPassword } from '../utils/hash';
+
+export const defaultHealthAuthorities: HealthAuthority[] = [
+  { id: 'ha_vch', name: 'VCH' },
+  { id: 'ha_fh', name: 'Fraser Health' },
+];
 
 // All IDs below are static so cross-references survive a reset.
 
@@ -50,11 +56,6 @@ export const defaultWorkflow: Workflow = {
       id: 'q_ptn',
       type: 'yesno',
       text: 'Is the receiving facility outside PTN?',
-    },
-    {
-      id: 'q_notes',
-      type: 'text',
-      text: 'Clinical notes (optional)',
     },
   ],
 };
@@ -105,7 +106,7 @@ export const defaultSpecialtyServices: SpecialtyService[] = [
         ],
       },
     },
-    transportAdvisor: { enabled: false, cardsByHA: {} },
+    transportAdvisor: { enabled: false, cards: [] },
   },
   {
     id: 'svc_neuro',
@@ -140,7 +141,7 @@ export const defaultSpecialtyServices: SpecialtyService[] = [
         ],
       },
     },
-    transportAdvisor: { enabled: false, cardsByHA: {} },
+    transportAdvisor: { enabled: false, cards: [] },
   },
 ];
 
@@ -148,7 +149,7 @@ export const defaultFacilities: Facility[] = [
   {
     id: 'f_general',
     name: 'Vancouver General',
-    healthAuthority: 'VCH',
+    healthAuthorityId: 'ha_vch',
     onSiteServiceIds: ['svc_card', 'svc_neuro'],
     referralPatterns: {},
     notificationRequirements: [
@@ -158,6 +159,7 @@ export const defaultFacilities: Facility[] = [
         llto: true,
         hloc: true,
         svcIds: [],
+        excludeSvcIds: [],
       },
     ],
     serviceNotifs: {},
@@ -165,7 +167,7 @@ export const defaultFacilities: Facility[] = [
   {
     id: 'f_richmond',
     name: 'Richmond Regional',
-    healthAuthority: 'VCH',
+    healthAuthorityId: 'ha_vch',
     onSiteServiceIds: ['svc_card'],
     referralPatterns: {
       svc_card: { d1: 'f_general', d2: '', d3: '' },
@@ -177,7 +179,7 @@ export const defaultFacilities: Facility[] = [
   {
     id: 'f_surrey',
     name: 'Surrey Memorial',
-    healthAuthority: 'Fraser Health',
+    healthAuthorityId: 'ha_fh',
     onSiteServiceIds: ['svc_card', 'svc_neuro'],
     referralPatterns: {},
     notificationRequirements: [],

@@ -51,6 +51,8 @@ export function AppShell() {
             </Link>
             <nav className="flex gap-1">
               {link('/triage', 'Triage')}
+              {link('/process-cards', 'Process cards')}
+              {link('/reference-cards', 'Reference cards')}
               {session?.role === 'admin' && link('/admin', 'Admin')}
             </nav>
           </div>

@@ -3,7 +3,7 @@ import { useState } from 'react';
 import { useAppStore } from '../../store/appStore';
 import { Card } from '../../components/ui/Card';
 import { Button } from '../../components/ui/Button';
-import { Input, Textarea } from '../../components/ui/Input';
+import { Input, Select, Textarea } from '../../components/ui/Input';
 import { Toggle } from '../../components/ui/Toggle';
 import { MultiSelect } from '../../components/ui/MultiSelect';
 import { Combobox } from '../../components/ui/Combobox';
@@ -19,7 +19,10 @@ export function AdminFacilityDetailPage() {
   const services = useAppStore((s) => s.specialty);
   const overrides = useAppStore((s) => s.overrides);
   const setOverrides = useAppStore((s) => s.setOverrides);
+  const has = useAppStore((s) => s.healthAuthorities);
   const nav = useNavigate();
+
+  const haName = (id: string) => has.find((h) => h.id === id)?.name ?? '';
 
   const facility = facilities.find((f) => f.id === id);
   const [editingOverride, setEditingOverride] = useState<{ svcId: string } | null>(null);
@@ -66,8 +69,6 @@ export function AdminFacilityDetailPage() {
     nav('/admin/facilities');
   }
 
-  const facilityOptions = facilities.map((f) => ({ value: f.id, label: f.name, meta: f.healthAuthority }));
-
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
@@ -81,8 +82,23 @@ export function AdminFacilityDetailPage() {
       <Card title="Identity">
         <div className="grid grid-cols-2 gap-3">
           <Input label="Name" value={facility.name} onChange={(e) => patch({ name: e.target.value })} />
-          <Input label="Health authority" value={facility.healthAuthority} onChange={(e) => patch({ healthAuthority: e.target.value })} />
+          <Select
+            label="Health authority"
+            value={facility.healthAuthorityId}
+            onChange={(e) => patch({ healthAuthorityId: e.target.value })}
+          >
+            <option value="">— none —</option>
+            {has.map((h) => (
+              <option key={h.id} value={h.id}>{h.name}</option>
+            ))}
+          </Select>
         </div>
+        {has.length === 0 && (
+          <div className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded p-2 mt-2">
+            No Health Authorities defined yet. Add one in{' '}
+            <Link to="/admin/health-authorities" className="underline">Admin → Health Authorities</Link>.
+          </div>
+        )}
       </Card>
 
       <Card title="On-site specialty services" description="Mark which services this facility provides on-site.">
@@ -103,7 +119,7 @@ export function AdminFacilityDetailPage() {
               const rp = facility.referralPatterns[s.id] ?? { d1: '', d2: '', d3: '' };
               const candidates = facilities
                 .filter((f) => f.id !== facility.id && f.onSiteServiceIds.includes(s.id))
-                .map((f) => ({ value: f.id, label: f.name, meta: f.healthAuthority }));
+                .map((f) => ({ value: f.id, label: f.name, meta: haName(f.healthAuthorityId) }));
               return (
                 <div key={s.id} className="border rounded-md p-3">
                   <div className="flex items-center justify-between mb-2">
@@ -181,6 +197,7 @@ export function AdminFacilityDetailPage() {
                 llto: true,
                 hloc: true,
                 svcIds: [],
+                excludeSvcIds: [],
               })
             }
           >
@@ -193,21 +210,38 @@ export function AdminFacilityDetailPage() {
         ) : (
           <div className="space-y-3">
             {facility.notificationRequirements.map((nr) => (
-              <div key={nr.id} className="border rounded-md p-3 space-y-2">
-                <Input value={nr.text} onChange={(e) => updateNotifReq({ ...nr, text: e.target.value })} placeholder="Requirement text" />
+              <div key={nr.id} className="border rounded-md p-3 space-y-3">
+                <Input
+                  value={nr.text}
+                  onChange={(e) => updateNotifReq({ ...nr, text: e.target.value })}
+                  placeholder="Requirement text"
+                />
                 <div className="flex gap-4 flex-wrap items-center">
                   <Toggle checked={nr.llto} onChange={(v) => updateNotifReq({ ...nr, llto: v })} label="LLTO" />
                   <Toggle checked={nr.hloc} onChange={(v) => updateNotifReq({ ...nr, hloc: v })} label="HLOC" />
-                  <div className="flex-1 min-w-[240px]">
-                    <MultiSelect
-                      label="Limit to services (empty = any)"
-                      options={services.map((s) => ({ value: s.id, label: s.name }))}
-                      value={nr.svcIds}
-                      onChange={(v) => updateNotifReq({ ...nr, svcIds: v })}
-                    />
-                  </div>
-                  <Button size="sm" variant="ghost" onClick={() => removeNotifReq(nr.id)}>Delete</Button>
+                  <Button size="sm" variant="ghost" onClick={() => removeNotifReq(nr.id)} className="ml-auto">Delete</Button>
                 </div>
+                <MultiSelect
+                  label="Limit to services (empty = any)"
+                  options={services.map((s) => ({ value: s.id, label: s.name }))}
+                  value={nr.svcIds}
+                  onChange={(v) =>
+                    updateNotifReq({
+                      ...nr,
+                      svcIds: v,
+                      // Clear exclude list when an include list is set — they're mutually exclusive.
+                      excludeSvcIds: v.length > 0 ? [] : nr.excludeSvcIds,
+                    })
+                  }
+                />
+                {nr.svcIds.length === 0 && (
+                  <MultiSelect
+                    label="Exclude services (don't apply when any of these are selected)"
+                    options={services.map((s) => ({ value: s.id, label: s.name }))}
+                    value={nr.excludeSvcIds}
+                    onChange={(v) => updateNotifReq({ ...nr, excludeSvcIds: v })}
+                  />
+                )}
               </div>
             ))}
           </div>
@@ -238,10 +272,6 @@ export function AdminFacilityDetailPage() {
         );
       })()}
 
-      <div className="text-xs text-slate-400 mt-6">Tip: use the facility options above to also pick referral destinations from any facility, regardless of HA.</div>
-
-      {/* Reference data, just to silence unused — keep small */}
-      <input type="hidden" value={facilityOptions.length} readOnly />
     </div>
   );
 }

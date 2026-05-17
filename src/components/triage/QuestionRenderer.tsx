@@ -17,6 +17,8 @@ export function QuestionRenderer({ question, answers, setAnswer }: Props) {
   const specialty = useAppStore((s) => s.specialty);
   const diagnoses = useAppStore((s) => s.diagnoses);
   const reasons = useAppStore((s) => s.reasons);
+  const has = useAppStore((s) => s.healthAuthorities);
+  const haName = (id: string) => has.find((h) => h.id === id)?.name ?? '';
 
   const value = answers[question.id] ?? '';
 
@@ -65,7 +67,7 @@ export function QuestionRenderer({ question, answers, setAnswer }: Props) {
   }
 
   if (question.type === 'facility') {
-    const opts = facilities.map((f) => ({ value: f.id, label: f.name, meta: f.healthAuthority }));
+    const opts = facilities.map((f) => ({ value: f.id, label: f.name, meta: haName(f.healthAuthorityId) }));
     const facId = answers[`${question.id}__facid`] ?? '';
     return (
       <Combobox
@@ -149,8 +151,8 @@ export function QuestionRenderer({ question, answers, setAnswer }: Props) {
     const filteredCandidates = primarySvcId
       ? facilities
           .filter((f) => f.id !== facId && f.onSiteServiceIds.includes(primarySvcId))
-          .map((f) => ({ value: f.id, label: f.name, meta: f.healthAuthority }))
-      : facilities.map((f) => ({ value: f.id, label: f.name, meta: f.healthAuthority }));
+          .map((f) => ({ value: f.id, label: f.name, meta: haName(f.healthAuthorityId) }))
+      : facilities.map((f) => ({ value: f.id, label: f.name, meta: haName(f.healthAuthorityId) }));
 
     return (
       <div className="space-y-3">

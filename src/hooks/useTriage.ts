@@ -126,6 +126,7 @@ export interface UseTriageResult {
   phase: 'workflow' | 'pre-questions' | 'result';
   acStates: Record<string, string>;
   notifsSent: boolean;
+  notes: string;
 
   visibleQuestions: WorkflowQuestion[];
   currentQuestion: WorkflowQuestion | undefined;
@@ -147,6 +148,7 @@ export interface UseTriageResult {
   reset: () => void;
   setAcAnswer: (key: string, value: string) => void;
   markNotifsSent: () => void;
+  setNotes: (s: string) => void;
 
   getActiveCardQs: (svcId: string, verKey: VerKey, facId: string) => TemplateQuestion[];
   getActiveCardSteps: (
@@ -169,6 +171,7 @@ export function useTriage(): UseTriageResult {
   const phase = useTriageStore((s) => s.phase);
   const acStates = useTriageStore((s) => s.acStates);
   const notifsSent = useTriageStore((s) => s.notifsSent);
+  const notes = useTriageStore((s) => s.notes);
 
   const setAnswer = useTriageStore((s) => s.setAnswer);
   const goPrev = useTriageStore((s) => s.goPrev);
@@ -179,6 +182,7 @@ export function useTriage(): UseTriageResult {
   const reset = useTriageStore((s) => s.reset);
   const setAcAnswer = useTriageStore((s) => s.setAcAnswer);
   const markNotifsSent = useTriageStore((s) => s.markNotifsSent);
+  const setNotes = useTriageStore((s) => s.setNotes);
 
   const visibleQuestions = useMemo(
     () => computeVisible(workflow.questions, answers),
@@ -237,6 +241,7 @@ export function useTriage(): UseTriageResult {
     phase,
     acStates,
     notifsSent,
+    notes,
     visibleQuestions,
     currentQuestion: visibleQuestions[currentIndex],
     context,
@@ -256,6 +261,7 @@ export function useTriage(): UseTriageResult {
     reset,
     setAcAnswer,
     markNotifsSent,
+    setNotes,
     getActiveCardQs: getActiveCardQsWrapped,
     getActiveCardSteps: getActiveCardStepsWrapped,
   };

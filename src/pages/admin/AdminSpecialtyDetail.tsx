@@ -5,7 +5,7 @@ import { Card } from '../../components/ui/Card';
 import { Button } from '../../components/ui/Button';
 import { Input, Select, Textarea } from '../../components/ui/Input';
 import { Toggle } from '../../components/ui/Toggle';
-import { Badge } from '../../components/ui/Badge';
+import { MultiSelect } from '../../components/ui/MultiSelect';
 import { DragList } from '../../components/ui/DragList';
 import type {
   ExceptionStep,
@@ -20,12 +20,11 @@ export function AdminSpecialtyDetailPage() {
   const { id } = useParams<{ id: string }>();
   const services = useAppStore((s) => s.specialty);
   const setServices = useAppStore((s) => s.setSpecialty);
-  const facilities = useAppStore((s) => s.facilities);
+  const has = useAppStore((s) => s.healthAuthorities);
   const nav = useNavigate();
 
   const svc = services.find((s) => s.id === id);
   const [tab, setTab] = useState<VerKey>('llto');
-  const [haTab, setHaTab] = useState<string | null>(null);
 
   if (!svc) {
     return (
@@ -35,9 +34,6 @@ export function AdminSpecialtyDetailPage() {
       </div>
     );
   }
-
-  const has = Array.from(new Set(facilities.map((f) => f.healthAuthority).filter(Boolean)));
-  const activeHa = haTab ?? has[0] ?? '';
 
   const svcRef: SpecialtyService = svc;
 
@@ -93,14 +89,32 @@ export function AdminSpecialtyDetailPage() {
     patchTemplate(tab, { exceptionSteps: next });
   }
 
+  // ---------- Transport Advisor ----------
   function patchTA(p: Partial<SpecialtyService['transportAdvisor']>) {
     patch({ transportAdvisor: { ...svcRef.transportAdvisor, ...p } });
   }
-  function getCard(ha: string): TACard {
-    return svcRef.transportAdvisor.cardsByHA[ha] ?? { steps: [] };
+
+  function addTaCard() {
+    const card: TACard = {
+      id: uid('tac'),
+      name: 'New TA card',
+      llto: true,
+      hloc: false,
+      haIds: [],
+      steps: [],
+    };
+    patchTA({ cards: [...svcRef.transportAdvisor.cards, card] });
   }
-  function setCard(ha: string, card: TACard) {
-    patchTA({ cardsByHA: { ...svcRef.transportAdvisor.cardsByHA, [ha]: card } });
+
+  function updateTaCard(cid: string, p: Partial<TACard>) {
+    patchTA({
+      cards: svcRef.transportAdvisor.cards.map((c) => (c.id === cid ? { ...c, ...p } : c)),
+    });
+  }
+
+  function removeTaCard(cid: string) {
+    if (!window.confirm('Delete this TA card?')) return;
+    patchTA({ cards: svcRef.transportAdvisor.cards.filter((c) => c.id !== cid) });
   }
 
   function deleteService() {
@@ -206,55 +220,128 @@ export function AdminSpecialtyDetailPage() {
         </section>
       </Card>
 
-      <Card title="Transport Advisor" description="Optional pre-result HA-specific cards.">
+      <Card
+        title="Transport Advisor"
+        description="Cards shown after the referral question. A card fires when its version matches the case AND its HA list includes the destination facility's HA."
+        actions={
+          svc.transportAdvisor.enabled ? (
+            <Button size="sm" onClick={addTaCard}>+ Add card</Button>
+          ) : undefined
+        }
+      >
         <Toggle
           checked={svc.transportAdvisor.enabled}
           onChange={(v) => patchTA({ enabled: v })}
           label="Enable Transport Advisor for this service"
         />
+
         {svc.transportAdvisor.enabled && (
-          <div className="mt-4">
-            {has.length === 0 ? (
-              <div className="text-sm text-slate-400">Define at least one facility with a Health Authority first.</div>
+          <div className="mt-4 space-y-4">
+            {has.length === 0 && (
+              <div className="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded p-2">
+                No Health Authorities exist yet. Add one in{' '}
+                <Link to="/admin/health-authorities" className="underline">Admin → Health Authorities</Link>{' '}
+                before assigning cards.
+              </div>
+            )}
+
+            {svc.transportAdvisor.cards.length === 0 ? (
+              <div className="text-sm text-slate-500">
+                No cards yet. Click "+ Add card" to create one.
+              </div>
             ) : (
-              <>
-                <div className="flex flex-wrap gap-2 mb-3">
-                  {has.map((ha) => (
-                    <button
-                      key={ha}
-                      type="button"
-                      onClick={() => setHaTab(ha)}
-                      className={`text-xs px-2.5 py-1 rounded ${activeHa === ha ? 'bg-brand-600 text-white' : 'bg-slate-100 text-slate-700'}`}
-                    >
-                      {ha}
-                    </button>
-                  ))}
-                </div>
-                <Badge tone="purple">HA: {activeHa}</Badge>
-                <div className="mt-3 space-y-2">
-                  {getCard(activeHa).steps.map((step, idx) => (
-                    <div key={step.id} className="flex items-start gap-2">
-                      <Textarea
-                        value={step.text}
-                        onChange={(e) => {
-                          const card = getCard(activeHa);
-                          const next = card.steps.map((s) => (s.id === step.id ? { ...s, text: e.target.value } : s));
-                          setCard(activeHa, { ...card, steps: next });
-                        }}
-                      />
-                      <Button size="sm" variant="ghost" onClick={() => {
-                        const card = getCard(activeHa);
-                        setCard(activeHa, { ...card, steps: card.steps.filter((s) => s.id !== step.id) });
-                      }}>Remove</Button>
-                      <Badge tone="slate">{idx + 1}</Badge>
+              svc.transportAdvisor.cards.map((card) => (
+                <div key={card.id} className="border border-slate-200 rounded-md p-3 space-y-3 bg-slate-50">
+                  <div className="flex items-start gap-2">
+                    <Input
+                      label="Card name"
+                      value={card.name}
+                      onChange={(e) => updateTaCard(card.id, { name: e.target.value })}
+                      className="flex-1"
+                    />
+                    <Button size="sm" variant="ghost" onClick={() => removeTaCard(card.id)}>Delete card</Button>
+                  </div>
+
+                  <div className="flex gap-4">
+                    <Toggle
+                      checked={card.llto}
+                      onChange={(v) => updateTaCard(card.id, { llto: v })}
+                      label="LLTO"
+                    />
+                    <Toggle
+                      checked={card.hloc}
+                      onChange={(v) => updateTaCard(card.id, { hloc: v })}
+                      label="HLOC"
+                    />
+                  </div>
+
+                  <MultiSelect
+                    label="Applies when destination HA is one of"
+                    options={has.map((h) => ({ value: h.id, label: h.name }))}
+                    value={card.haIds}
+                    onChange={(v) => updateTaCard(card.id, { haIds: v })}
+                  />
+
+                  <div>
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="text-xs font-medium text-slate-600">Steps</span>
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        onClick={() =>
+                          updateTaCard(card.id, {
+                            steps: [...card.steps, { id: uid('tas'), text: 'New step' }],
+                          })
+                        }
+                      >
+                        + Add step
+                      </Button>
                     </div>
-                  ))}
-                  <Button size="sm" onClick={() => {
-                    const card = getCard(activeHa);
-                    setCard(activeHa, { steps: [...card.steps, { id: uid('tas'), text: 'New step' }] });
-                  }}>+ Add step</Button>
+                    <DragList
+                      items={card.steps}
+                      onReorder={(next) => updateTaCard(card.id, { steps: next })}
+                      renderItem={(step, handle) => (
+                        <div className="flex items-start gap-2 bg-white border rounded-md p-2">
+                          {handle}
+                          <Textarea
+                            value={step.text}
+                            onChange={(e) =>
+                              updateTaCard(card.id, {
+                                steps: card.steps.map((s) =>
+                                  s.id === step.id ? { ...s, text: e.target.value } : s
+                                ),
+                              })
+                            }
+                            className="flex-1"
+                          />
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={() =>
+                              updateTaCard(card.id, {
+                                steps: card.steps.filter((s) => s.id !== step.id),
+                              })
+                            }
+                          >
+                            Remove
+                          </Button>
+                        </div>
+                      )}
+                    />
+                  </div>
+
+                  {!card.llto && !card.hloc && (
+                    <div className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded p-2">
+                      This card has neither LLTO nor HLOC enabled — it will never fire.
+                    </div>
+                  )}
+                  {card.haIds.length === 0 && (
+                    <div className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded p-2">
+                      No HAs selected — this card will never fire.
+                    </div>
+                  )}
                 </div>
-              </>
+              ))
             )}
           </div>
         )}

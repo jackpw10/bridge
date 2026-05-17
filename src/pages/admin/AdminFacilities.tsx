@@ -12,14 +12,17 @@ export function AdminFacilitiesPage() {
   const facilities = useAppStore((s) => s.facilities);
   const setFacilities = useAppStore((s) => s.setFacilities);
   const services = useAppStore((s) => s.specialty);
+  const has = useAppStore((s) => s.healthAuthorities);
 
   const [q, setQ] = useState('');
+
+  const haName = (id: string) => has.find((h) => h.id === id)?.name ?? '';
 
   function add() {
     const f: Facility = {
       id: uid('f'),
       name: 'New facility',
-      healthAuthority: '',
+      healthAuthorityId: '',
       onSiteServiceIds: [],
       referralPatterns: {},
       notificationRequirements: [],
@@ -37,7 +40,8 @@ export function AdminFacilitiesPage() {
     const rows = facilities.map((f) => ({
       id: f.id,
       name: f.name,
-      healthAuthority: f.healthAuthority,
+      healthAuthorityId: f.healthAuthorityId,
+      healthAuthorityName: haName(f.healthAuthorityId),
       onSiteServiceIds: f.onSiteServiceIds.join('|'),
     }));
     downloadCsv('facilities.csv', toCsv(rows));
@@ -48,13 +52,19 @@ export function AdminFacilitiesPage() {
     reader.onload = () => {
       const rows = fromCsv(String(reader.result ?? ''));
       const byId = new Map(facilities.map((f) => [f.id, f] as const));
+      const haByName = new Map(has.map((h) => [h.name.toLowerCase(), h] as const));
       for (const r of rows) {
         const id = r.id || uid('f');
         const cur = byId.get(id);
+        // Resolve HA: prefer explicit id, then look up by name.
+        let haId = r.healthAuthorityId ?? cur?.healthAuthorityId ?? '';
+        if (!haId && r.healthAuthorityName) {
+          haId = haByName.get(r.healthAuthorityName.toLowerCase())?.id ?? '';
+        }
         const next: Facility = {
           id,
           name: r.name ?? cur?.name ?? '',
-          healthAuthority: r.healthAuthority ?? cur?.healthAuthority ?? '',
+          healthAuthorityId: haId,
           onSiteServiceIds: (r.onSiteServiceIds ?? '').split('|').filter(Boolean),
           referralPatterns: cur?.referralPatterns ?? {},
           notificationRequirements: cur?.notificationRequirements ?? [],
@@ -67,11 +77,14 @@ export function AdminFacilitiesPage() {
     reader.readAsText(file);
   }
 
-  const filtered = facilities.filter((f) =>
-    !q.trim() ||
-    f.name.toLowerCase().includes(q.toLowerCase()) ||
-    f.healthAuthority.toLowerCase().includes(q.toLowerCase())
-  );
+  const filtered = facilities.filter((f) => {
+    if (!q.trim()) return true;
+    const ql = q.toLowerCase();
+    return (
+      f.name.toLowerCase().includes(ql) ||
+      haName(f.healthAuthorityId).toLowerCase().includes(ql)
+    );
+  });
 
   return (
     <div className="space-y-4">
@@ -111,7 +124,7 @@ export function AdminFacilitiesPage() {
                   {f.name}
                 </Link>
                 <div className="text-xs text-slate-500">
-                  {f.healthAuthority || '—'} ·{' '}
+                  {haName(f.healthAuthorityId) || '—'} ·{' '}
                   {f.onSiteServiceIds.length === 0
                     ? 'no on-site services'
                     : f.onSiteServiceIds

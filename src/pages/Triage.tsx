@@ -5,9 +5,16 @@ import { useAppStore } from '../store/appStore';
 import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
 import { Badge } from '../components/ui/Badge';
+import { Textarea } from '../components/ui/Input';
 import { QuestionRenderer } from '../components/triage/QuestionRenderer';
 import { PreQuestionsPanel } from '../components/triage/PreQuestionsPanel';
-import type { SpecialtyService } from '../types';
+import type { TACard } from '../types';
+
+interface TaItem {
+  svcId: string;
+  svcName: string;
+  card: TACard;
+}
 
 export function TriagePage() {
   const t = useTriage();
@@ -19,15 +26,26 @@ export function TriagePage() {
   const referralAnswered =
     !!referralQuestion && !!t.answers[`${referralQuestion.id}__choice`];
 
-  const taItems = useMemo<SpecialtyService[]>(() => {
+  // Find every TA card that matches: enabled service + verKey + destination HA.
+  const taItems = useMemo<TaItem[]>(() => {
     if (!referralAnswered) return [];
-    return t.context.svcIds
-      .map((id) => specialty.find((s) => s.id === id))
-      .filter((s): s is SpecialtyService => !!s && s.transportAdvisor.enabled);
-  }, [t.context.svcIds, specialty, referralAnswered]);
+    const destHaId = t.destFacility?.healthAuthorityId ?? '';
+    const out: TaItem[] = [];
+    for (const svcId of t.context.svcIds) {
+      const svc = specialty.find((s) => s.id === svcId);
+      if (!svc || !svc.transportAdvisor.enabled) continue;
+      for (const card of svc.transportAdvisor.cards) {
+        const versionMatch = t.verKey === 'llto' ? card.llto : card.hloc;
+        if (!versionMatch) continue;
+        if (!card.haIds.includes(destHaId)) continue;
+        out.push({ svcId, svcName: svc.name, card });
+      }
+    }
+    return out;
+  }, [referralAnswered, t.context.svcIds, t.destFacility?.healthAuthorityId, t.verKey, specialty]);
 
   const unseenTa = useMemo(
-    () => taItems.filter((s) => !t.taShown[s.id]),
+    () => taItems.filter((i) => !t.taShown[i.card.id]),
     [taItems, t.taShown]
   );
 
@@ -100,25 +118,26 @@ export function TriagePage() {
 
       {unseenTa.length > 0 && (
         <div className="space-y-3">
-          {unseenTa.map((svc) => {
-            const dest = t.destFacility;
-            const ha = dest?.healthAuthority ?? '';
-            const card = svc.transportAdvisor.cardsByHA[ha];
-            return (
-              <Card key={svc.id} title={`Transport Advisor — ${svc.name}`} description={`HA: ${ha || 'unspecified'}`}>
-                {card && card.steps.length > 0 ? (
-                  <ol className="list-decimal pl-5 space-y-1 text-sm">
-                    {card.steps.map((s) => <li key={s.id}>{s.text}</li>)}
-                  </ol>
-                ) : (
-                  <div className="text-sm text-slate-500">No card configured for this HA.</div>
-                )}
-                <div className="mt-3 flex justify-end">
-                  <Button size="sm" onClick={() => t.markTaShown(svc.id)}>Acknowledge & continue</Button>
-                </div>
-              </Card>
-            );
-          })}
+          {unseenTa.map((item) => (
+            <Card
+              key={item.card.id}
+              title={`Transport Advisor — ${item.svcName}`}
+              description={item.card.name}
+            >
+              {item.card.steps.length > 0 ? (
+                <ol className="list-decimal pl-5 space-y-1 text-sm">
+                  {item.card.steps.map((s) => <li key={s.id}>{s.text}</li>)}
+                </ol>
+              ) : (
+                <div className="text-sm text-slate-500">No steps on this card.</div>
+              )}
+              <div className="mt-3 flex justify-end">
+                <Button size="sm" onClick={() => t.markTaShown(item.card.id)}>
+                  Acknowledge & continue
+                </Button>
+              </div>
+            </Card>
+          ))}
         </div>
       )}
 
@@ -127,37 +146,54 @@ export function TriagePage() {
         <Button onClick={t.goNext} disabled={!canAdvance()}>Next</Button>
       </div>
 
-      <Card title="Progress" description="Click any answered question to jump back.">
-        <ol className="text-sm space-y-1">
-          {t.visibleQuestions.map((q, i) => {
-            const isCur = i === t.currentIndex;
-            const answered =
-              !!t.answers[q.id] ||
-              !!t.answers[`${q.id}__choice`] ||
-              !!t.answers[`${q.id}__svcs`] ||
-              !!t.answers[`${q.id}__dxs`] ||
-              !!t.answers[`${q.id}__facid`];
-            return (
-              <li key={q.id}>
-                <button
-                  type="button"
-                  onClick={() => answered && t.goToIndex(i)}
-                  className={`text-left w-full px-2 py-1 rounded ${isCur ? 'bg-brand-50 text-brand-800 font-medium' : answered ? 'hover:bg-slate-100' : 'text-slate-400'}`}
-                >
-                  {i + 1}. {q.text}
-                  {answered && t.answers[q.id] && (
-                    <span className="text-slate-500 ml-2">— {t.answers[q.id]}</span>
-                  )}
-                </button>
-              </li>
-            );
-          })}
-        </ol>
-        <div className="text-xs text-slate-500 mt-3 flex gap-2 items-center">
-          Version:{' '}
-          <Badge tone={t.verKey === 'llto' ? 'green' : 'red'}>{t.verKey.toUpperCase()}</Badge>
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+        <div className="lg:col-span-2">
+          <Card title="Progress" description="Click any answered question to jump back.">
+            <ol className="text-sm space-y-1">
+              {t.visibleQuestions.map((q, i) => {
+                const isCur = i === t.currentIndex;
+                const answered =
+                  !!t.answers[q.id] ||
+                  !!t.answers[`${q.id}__choice`] ||
+                  !!t.answers[`${q.id}__svcs`] ||
+                  !!t.answers[`${q.id}__dxs`] ||
+                  !!t.answers[`${q.id}__facid`];
+                return (
+                  <li key={q.id}>
+                    <button
+                      type="button"
+                      onClick={() => answered && t.goToIndex(i)}
+                      className={`text-left w-full px-2 py-1 rounded ${isCur ? 'bg-brand-50 text-brand-800 font-medium' : answered ? 'hover:bg-slate-100' : 'text-slate-400'}`}
+                    >
+                      {i + 1}. {q.text}
+                      {answered && t.answers[q.id] && (
+                        <span className="text-slate-500 ml-2">— {t.answers[q.id]}</span>
+                      )}
+                    </button>
+                  </li>
+                );
+              })}
+            </ol>
+            <div className="text-xs text-slate-500 mt-3 flex gap-2 items-center">
+              Version:{' '}
+              <Badge tone={t.verKey === 'llto' ? 'green' : 'red'}>{t.verKey.toUpperCase()}</Badge>
+            </div>
+          </Card>
         </div>
-      </Card>
+        <div className="lg:col-span-1">
+          <Card
+            title="Additional Information"
+            description="Notes can be added or updated any time during triage."
+          >
+            <Textarea
+              value={t.notes}
+              onChange={(e) => t.setNotes(e.target.value)}
+              placeholder="Type any extra context, clinical notes, or handoff details…"
+              rows={8}
+            />
+          </Card>
+        </div>
+      </div>
     </div>
   );
 }
