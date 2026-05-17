@@ -1,10 +1,8 @@
 import { Link } from 'react-router-dom';
 import { Card } from '../../components/ui/Card';
-import { Button } from '../../components/ui/Button';
-import { useAppStore } from '../../store/appStore';
 
 const tiles = [
-  { to: '/admin/users', title: 'Users', desc: 'Create and manage user accounts, passwords, and admin roles.' },
+  { to: '/admin/users', title: 'Users', desc: 'Manage user accounts and admin roles. New accounts sign up via /signup.' },
   { to: '/admin/workflow', title: 'Triage workflow', desc: 'Order and configure the questions users answer.' },
   { to: '/admin/health-authorities', title: 'Health Authorities', desc: 'The list of Health Authorities used by facilities and TA cards.' },
   { to: '/admin/facilities', title: 'Facilities', desc: 'Sites, on-site services, referral patterns, notifications.' },
@@ -16,24 +14,11 @@ const tiles = [
 ];
 
 export function AdminHomePage() {
-  const resetAll = useAppStore((s) => s.resetAll);
-
-  function onReset() {
-    if (window.confirm('Reset ALL configuration and notifications to defaults? Existing users will be preserved-reset to defaults.')) {
-      resetAll();
-    }
-  }
-
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-slate-800">Admin</h1>
-          <p className="text-sm text-slate-500">Configure how BRIDGE behaves for your team.</p>
-        </div>
-        <Button variant="danger" size="sm" onClick={onReset}>
-          Reset to defaults
-        </Button>
+      <div>
+        <h1 className="text-2xl font-bold text-slate-800">Admin</h1>
+        <p className="text-sm text-slate-500">Configure how BRIDGE behaves for your team.</p>
       </div>
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
         {tiles.map((t) => (

@@ -6,27 +6,14 @@ import type {
   ProcessSteps,
   ReferenceCard,
   SpecialtyService,
-  User,
   Workflow,
 } from '../types';
-import { hashPassword } from '../utils/hash';
+
+// All IDs below are static so cross-references survive a reset.
 
 export const defaultHealthAuthorities: HealthAuthority[] = [
   { id: 'ha_vch', name: 'VCH' },
   { id: 'ha_fh', name: 'Fraser Health' },
-];
-
-// All IDs below are static so cross-references survive a reset.
-
-export const defaultUsers: User[] = [
-  {
-    id: 'u_admin',
-    username: 'admin',
-    firstName: 'Admin',
-    lastName: 'User',
-    passwordHash: hashPassword('admin'),
-    role: 'admin',
-  },
 ];
 
 export const defaultWorkflow: Workflow = {

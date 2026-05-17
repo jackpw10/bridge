@@ -1,51 +1,108 @@
 import { Link } from 'react-router-dom';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useAppStore } from '../../store/appStore';
 import { Card } from '../../components/ui/Card';
 import { Button } from '../../components/ui/Button';
 import { Input } from '../../components/ui/Input';
-import { Modal } from '../../components/ui/Modal';
 import { Toggle } from '../../components/ui/Toggle';
 import { Badge } from '../../components/ui/Badge';
-import { uid } from '../../utils/id';
-import { hashPassword } from '../../utils/hash';
-import type { User } from '../../types';
+import { supabase } from '../../lib/supabase';
+import { sendPasswordReset } from '../../lib/auth';
+
+interface ProfileRow {
+  id: string;
+  email: string;
+  firstName: string;
+  lastName: string;
+  role: 'admin' | 'user';
+}
+
+async function fetchProfiles(): Promise<ProfileRow[]> {
+  // We can read profiles (name, role); emails live in auth.users which is
+  // restricted. So we display by name + show '(no email visible)' when blank.
+  const { data, error } = await supabase
+    .from('profiles')
+    .select('id, first_name, last_name, role')
+    .order('created_at', { ascending: true });
+  if (error) {
+    console.error(error);
+    return [];
+  }
+  return (data ?? []).map((r) => ({
+    id: r.id as string,
+    email: '',
+    firstName: (r.first_name as string) ?? '',
+    lastName: (r.last_name as string) ?? '',
+    role: ((r.role as string) === 'admin' ? 'admin' : 'user') as 'admin' | 'user',
+  }));
+}
 
 export function AdminUsersPage() {
-  const users = useAppStore((s) => s.users);
-  const setUsers = useAppStore((s) => s.setUsers);
   const session = useAppStore((s) => s.session);
 
-  const [creating, setCreating] = useState(false);
-  const [editing, setEditing] = useState<User | null>(null);
-  const [resettingPw, setResettingPw] = useState<User | null>(null);
+  const [profiles, setProfiles] = useState<ProfileRow[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [msg, setMsg] = useState<string | null>(null);
 
-  const adminCount = useMemo(() => users.filter((u) => u.role === 'admin').length, [users]);
-
-  function save(next: User) {
-    const exists = users.some((u) => u.id === next.id);
-    setUsers(exists ? users.map((u) => (u.id === next.id ? next : u)) : [...users, next]);
+  async function refresh() {
+    setLoading(true);
+    const next = await fetchProfiles();
+    setProfiles(next);
+    setLoading(false);
   }
 
-  function toggleAdmin(u: User, makeAdmin: boolean) {
-    if (!makeAdmin && u.role === 'admin' && adminCount <= 1) {
+  useEffect(() => {
+    refresh();
+  }, []);
+
+  const adminCount = useMemo(
+    () => profiles.filter((p) => p.role === 'admin').length,
+    [profiles]
+  );
+
+  async function toggleAdmin(p: ProfileRow, makeAdmin: boolean) {
+    if (!makeAdmin && p.role === 'admin' && adminCount <= 1) {
       window.alert('Cannot remove the last admin. Promote another user first.');
       return;
     }
-    save({ ...u, role: makeAdmin ? 'admin' : 'user' });
+    const { error } = await supabase
+      .from('profiles')
+      .update({ role: makeAdmin ? 'admin' : 'user' })
+      .eq('id', p.id);
+    if (error) {
+      window.alert(`Failed to update role: ${error.message}`);
+      return;
+    }
+    refresh();
   }
 
-  function remove(u: User) {
-    if (session?.userId === u.id) {
-      window.alert('You cannot delete your own account.');
+  async function saveName(p: ProfileRow, firstName: string, lastName: string) {
+    const { error } = await supabase
+      .from('profiles')
+      .update({ first_name: firstName, last_name: lastName })
+      .eq('id', p.id);
+    if (error) {
+      window.alert(`Failed to save: ${error.message}`);
       return;
     }
-    if (u.role === 'admin' && adminCount <= 1) {
-      window.alert('Cannot delete the last admin.');
+    setProfiles((cur) =>
+      cur.map((x) => (x.id === p.id ? { ...x, firstName, lastName } : x))
+    );
+  }
+
+  async function resetPw(p: ProfileRow) {
+    const email = window.prompt(
+      `Enter the email address for "${p.firstName} ${p.lastName}".\nSupabase will send a password reset link to that address.`,
+      ''
+    );
+    if (!email) return;
+    const { error } = await sendPasswordReset(email.trim());
+    if (error) {
+      window.alert(`Failed: ${error.message}`);
       return;
     }
-    if (!window.confirm(`Delete user "${u.username}"? This cannot be undone.`)) return;
-    setUsers(users.filter((x) => x.id !== u.id));
+    setMsg(`Password reset email sent to ${email}.`);
+    window.setTimeout(() => setMsg(null), 4000);
   }
 
   return (
@@ -54,238 +111,136 @@ export function AdminUsersPage() {
         <div>
           <Link to="/admin" className="text-xs text-brand-600 hover:underline">← Admin</Link>
           <h1 className="text-2xl font-bold text-slate-800">Users</h1>
+          <p className="text-sm text-slate-500">
+            Edit names and toggle admin role here. New users sign up via the public{' '}
+            <Link to="/signup" className="underline">/signup</Link> page.
+          </p>
         </div>
-        <Button onClick={() => setCreating(true)}>+ New user</Button>
+        <Button size="sm" variant="secondary" onClick={refresh}>
+          Refresh
+        </Button>
       </div>
 
-      <Card>
-        <div className="divide-y divide-slate-100">
-          {users.map((u) => {
-            const isSelf = session?.userId === u.id;
-            return (
-              <div key={u.id} className="py-3 flex items-center justify-between gap-3">
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2">
-                    <span className="font-medium text-slate-800 truncate">
-                      {u.firstName || u.lastName ? `${u.firstName} ${u.lastName}`.trim() : u.username}
-                    </span>
-                    {u.role === 'admin' && <Badge tone="purple">ADMIN</Badge>}
-                    {isSelf && <Badge tone="slate">You</Badge>}
-                  </div>
-                  <div className="text-xs text-slate-500">username: {u.username}</div>
-                </div>
-                <Toggle
-                  checked={u.role === 'admin'}
-                  onChange={(v) => toggleAdmin(u, v)}
-                  label="Admin"
-                />
-                <Button size="sm" variant="secondary" onClick={() => setEditing(u)}>Edit</Button>
-                <Button size="sm" variant="secondary" onClick={() => setResettingPw(u)}>Reset pw</Button>
-                <Button size="sm" variant="ghost" onClick={() => remove(u)} disabled={isSelf}>Delete</Button>
-              </div>
-            );
-          })}
-          {users.length === 0 && (
-            <div className="text-sm text-slate-400 py-4 text-center">No users.</div>
-          )}
+      {msg && (
+        <div className="text-sm text-green-700 bg-green-50 border border-green-200 rounded p-2">
+          {msg}
         </div>
+      )}
+
+      <Card title="How user management works with Supabase">
+        <ul className="text-sm text-slate-600 list-disc pl-5 space-y-1">
+          <li>To add a user, share the <Link to="/signup" className="text-brand-600 underline">/signup</Link> URL with them. They create their own password.</li>
+          <li>All new accounts default to "user" role. Promote them to admin here.</li>
+          <li>To delete a user permanently, use the Supabase dashboard → Authentication → Users.</li>
+        </ul>
       </Card>
 
-      {creating && (
-        <CreateUserModal
-          existingUsernames={users.map((u) => u.username)}
-          onCancel={() => setCreating(false)}
-          onCreate={(u) => {
-            save(u);
-            setCreating(false);
-          }}
-        />
-      )}
-
-      {editing && (
-        <EditUserModal
-          user={editing}
-          existingUsernames={users.filter((u) => u.id !== editing.id).map((u) => u.username)}
-          onCancel={() => setEditing(null)}
-          onSave={(u) => {
-            save(u);
-            setEditing(null);
-          }}
-        />
-      )}
-
-      {resettingPw && (
-        <ResetPasswordModal
-          user={resettingPw}
-          onCancel={() => setResettingPw(null)}
-          onConfirm={(plain) => {
-            save({ ...resettingPw, passwordHash: hashPassword(plain) });
-            setResettingPw(null);
-          }}
-        />
-      )}
+      <Card>
+        {loading ? (
+          <div className="text-sm text-slate-500">Loading…</div>
+        ) : profiles.length === 0 ? (
+          <div className="text-sm text-slate-400">No users yet.</div>
+        ) : (
+          <div className="divide-y divide-slate-100">
+            {profiles.map((p) => {
+              const isSelf = session?.userId === p.id;
+              return (
+                <UserRow
+                  key={p.id}
+                  profile={p}
+                  isSelf={isSelf}
+                  onSaveName={(f, l) => saveName(p, f, l)}
+                  onToggleAdmin={(v) => toggleAdmin(p, v)}
+                  onResetPw={() => resetPw(p)}
+                />
+              );
+            })}
+          </div>
+        )}
+      </Card>
     </div>
   );
 }
 
-// ---------- Create ----------
-function CreateUserModal({
-  existingUsernames,
-  onCancel,
-  onCreate,
+function UserRow({
+  profile,
+  isSelf,
+  onSaveName,
+  onToggleAdmin,
+  onResetPw,
 }: {
-  existingUsernames: string[];
-  onCancel: () => void;
-  onCreate: (u: User) => void;
+  profile: ProfileRow;
+  isSelf: boolean;
+  onSaveName: (firstName: string, lastName: string) => void;
+  onToggleAdmin: (v: boolean) => void;
+  onResetPw: () => void;
 }) {
-  const [username, setUsername] = useState('');
-  const [firstName, setFirstName] = useState('');
-  const [lastName, setLastName] = useState('');
-  const [password, setPassword] = useState('');
-  const [confirm, setConfirm] = useState('');
-  const [isAdmin, setIsAdmin] = useState(false);
-  const [err, setErr] = useState<string | null>(null);
+  const [editing, setEditing] = useState(false);
+  const [firstName, setFirstName] = useState(profile.firstName);
+  const [lastName, setLastName] = useState(profile.lastName);
 
-  function submit() {
-    const u = username.trim();
-    if (!u) return setErr('Username is required.');
-    if (existingUsernames.some((x) => x.toLowerCase() === u.toLowerCase()))
-      return setErr('That username is already taken.');
-    if (!password) return setErr('Password is required.');
-    if (password !== confirm) return setErr('Passwords do not match.');
-    onCreate({
-      id: uid('u'),
-      username: u,
-      firstName: firstName.trim(),
-      lastName: lastName.trim(),
-      passwordHash: hashPassword(password),
-      role: isAdmin ? 'admin' : 'user',
-    });
-  }
+  const display =
+    profile.firstName || profile.lastName
+      ? `${profile.firstName} ${profile.lastName}`.trim()
+      : '(no name set)';
 
   return (
-    <Modal
-      open
-      onClose={onCancel}
-      title="Create user"
-      footer={
-        <>
-          <Button variant="ghost" onClick={onCancel}>Cancel</Button>
-          <Button onClick={submit}>Create</Button>
-        </>
-      }
-    >
-      <form
-        onSubmit={(e) => {
-          e.preventDefault();
-          submit();
-        }}
-        className="space-y-3"
-      >
-        <Input label="Username" autoFocus value={username} onChange={(e) => setUsername(e.target.value)} />
-        <div className="grid grid-cols-2 gap-3">
-          <Input label="First name" value={firstName} onChange={(e) => setFirstName(e.target.value)} />
-          <Input label="Last name" value={lastName} onChange={(e) => setLastName(e.target.value)} />
-        </div>
-        <Input label="Password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} />
-        <Input label="Confirm password" type="password" value={confirm} onChange={(e) => setConfirm(e.target.value)} />
-        <Toggle checked={isAdmin} onChange={setIsAdmin} label="Grant admin role" />
-        {err && <div className="text-sm text-red-600">{err}</div>}
-        <button type="submit" className="hidden" aria-hidden />
-      </form>
-    </Modal>
-  );
-}
-
-// ---------- Edit ----------
-function EditUserModal({
-  user,
-  existingUsernames,
-  onCancel,
-  onSave,
-}: {
-  user: User;
-  existingUsernames: string[];
-  onCancel: () => void;
-  onSave: (u: User) => void;
-}) {
-  const [username, setUsername] = useState(user.username);
-  const [firstName, setFirstName] = useState(user.firstName);
-  const [lastName, setLastName] = useState(user.lastName);
-  const [err, setErr] = useState<string | null>(null);
-
-  function submit() {
-    const u = username.trim();
-    if (!u) return setErr('Username is required.');
-    if (existingUsernames.some((x) => x.toLowerCase() === u.toLowerCase()))
-      return setErr('That username is already taken.');
-    onSave({ ...user, username: u, firstName: firstName.trim(), lastName: lastName.trim() });
-  }
-
-  return (
-    <Modal
-      open
-      onClose={onCancel}
-      title={`Edit ${user.username}`}
-      footer={
-        <>
-          <Button variant="ghost" onClick={onCancel}>Cancel</Button>
-          <Button onClick={submit}>Save</Button>
-        </>
-      }
-    >
-      <div className="space-y-3">
-        <Input label="Username" value={username} onChange={(e) => setUsername(e.target.value)} />
-        <div className="grid grid-cols-2 gap-3">
-          <Input label="First name" value={firstName} onChange={(e) => setFirstName(e.target.value)} />
-          <Input label="Last name" value={lastName} onChange={(e) => setLastName(e.target.value)} />
-        </div>
-        <div className="text-xs text-slate-500">
-          To change this user's password, use "Reset pw" from the list.
-        </div>
-        {err && <div className="text-sm text-red-600">{err}</div>}
+    <div className="py-3 flex items-center justify-between gap-3">
+      <div className="flex-1 min-w-0">
+        {editing ? (
+          <div className="grid grid-cols-2 gap-2">
+            <Input
+              label="First"
+              value={firstName}
+              onChange={(e) => setFirstName(e.target.value)}
+            />
+            <Input
+              label="Last"
+              value={lastName}
+              onChange={(e) => setLastName(e.target.value)}
+            />
+          </div>
+        ) : (
+          <>
+            <div className="flex items-center gap-2">
+              <span className="font-medium text-slate-800 truncate">{display}</span>
+              {profile.role === 'admin' && <Badge tone="purple">ADMIN</Badge>}
+              {isSelf && <Badge tone="slate">You</Badge>}
+            </div>
+            <div className="text-xs text-slate-400">id: {profile.id}</div>
+          </>
+        )}
       </div>
-    </Modal>
-  );
-}
-
-// ---------- Reset pw ----------
-function ResetPasswordModal({
-  user,
-  onCancel,
-  onConfirm,
-}: {
-  user: User;
-  onCancel: () => void;
-  onConfirm: (plain: string) => void;
-}) {
-  const [pw, setPw] = useState('');
-  const [confirm, setConfirm] = useState('');
-  const [err, setErr] = useState<string | null>(null);
-
-  function submit() {
-    if (!pw) return setErr('Password is required.');
-    if (pw !== confirm) return setErr('Passwords do not match.');
-    onConfirm(pw);
-  }
-
-  return (
-    <Modal
-      open
-      onClose={onCancel}
-      title={`Reset password — ${user.username}`}
-      footer={
+      <Toggle
+        checked={profile.role === 'admin'}
+        onChange={onToggleAdmin}
+        label="Admin"
+      />
+      {editing ? (
         <>
-          <Button variant="ghost" onClick={onCancel}>Cancel</Button>
-          <Button onClick={submit}>Reset</Button>
+          <Button
+            size="sm"
+            onClick={() => {
+              onSaveName(firstName, lastName);
+              setEditing(false);
+            }}
+          >
+            Save
+          </Button>
+          <Button size="sm" variant="ghost" onClick={() => setEditing(false)}>
+            Cancel
+          </Button>
         </>
-      }
-    >
-      <div className="space-y-3">
-        <Input label="New password" type="password" autoFocus value={pw} onChange={(e) => setPw(e.target.value)} />
-        <Input label="Confirm new password" type="password" value={confirm} onChange={(e) => setConfirm(e.target.value)} />
-        {err && <div className="text-sm text-red-600">{err}</div>}
-      </div>
-    </Modal>
+      ) : (
+        <>
+          <Button size="sm" variant="secondary" onClick={() => setEditing(true)}>
+            Edit name
+          </Button>
+          <Button size="sm" variant="secondary" onClick={onResetPw}>
+            Send reset
+          </Button>
+        </>
+      )}
+    </div>
   );
 }

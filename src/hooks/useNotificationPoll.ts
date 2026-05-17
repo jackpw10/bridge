@@ -1,25 +1,18 @@
+// Notifications now arrive via Supabase realtime — the channel subscription
+// in appStore mutates `notifications` directly. This hook is still responsible
+// for playing the audio ping when an unacknowledged notification appears.
 import { useEffect, useRef } from 'react';
 import { useAppStore } from '../store/appStore';
 import { playPing } from '../components/notifications/notifAudio';
 
-const POLL_MS = 3000;
 const REPING_MS = 10_000;
 
 export function useNotificationPoll() {
   const session = useAppStore((s) => s.session);
-  const refresh = useAppStore((s) => s.refreshNotificationsFromStorage);
   const notifications = useAppStore((s) => s.notifications);
 
   const lastSeenIdsRef = useRef<Set<string>>(new Set());
   const lastPingRef = useRef<number>(0);
-
-  useEffect(() => {
-    if (!session) return;
-    const tick = () => refresh();
-    tick();
-    const id = window.setInterval(tick, POLL_MS);
-    return () => window.clearInterval(id);
-  }, [session, refresh]);
 
   useEffect(() => {
     if (!session) return;

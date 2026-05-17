@@ -1,31 +1,27 @@
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { useAppStore } from '../store/appStore';
-import { verifyPassword } from '../utils/hash';
+import { Link, useNavigate } from 'react-router-dom';
+import { signIn } from '../lib/auth';
 import { Button } from '../components/ui/Button';
 import { Input } from '../components/ui/Input';
 
 export function LoginPage() {
-  const users = useAppStore((s) => s.users);
-  const setSession = useAppStore((s) => s.setSession);
   const nav = useNavigate();
-
-  const [username, setUsername] = useState('');
+  const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [err, setErr] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
 
-  function submit(e: React.FormEvent) {
+  async function submit(e: React.FormEvent) {
     e.preventDefault();
     setErr(null);
-    const u = users.find(
-      (x) => x.username.toLowerCase() === username.toLowerCase()
-    );
-    if (!u || !verifyPassword(password, u.passwordHash)) {
-      setErr('Invalid username or password.');
+    setBusy(true);
+    const { error } = await signIn(email.trim(), password);
+    setBusy(false);
+    if (error) {
+      setErr(error.message);
       return;
     }
-    setSession({ userId: u.id, username: u.username, role: u.role });
-    nav(u.role === 'admin' ? '/admin' : '/triage', { replace: true });
+    nav('/', { replace: true });
   }
 
   return (
@@ -36,16 +32,15 @@ export function LoginPage() {
       >
         <div>
           <h1 className="text-2xl font-bold text-slate-800">BRIDGE</h1>
-          <p className="text-sm text-slate-500">
-            Interfacility Transfer triage
-          </p>
+          <p className="text-sm text-slate-500">Interfacility Transfer triage</p>
         </div>
         <Input
-          label="Username"
+          label="Email"
+          type="email"
           autoFocus
-          value={username}
-          onChange={(e) => setUsername(e.target.value)}
-          autoComplete="username"
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+          autoComplete="email"
         />
         <Input
           label="Password"
@@ -55,9 +50,15 @@ export function LoginPage() {
           autoComplete="current-password"
         />
         {err && <div className="text-sm text-red-600">{err}</div>}
-        <Button type="submit" className="w-full">
-          Sign in
+        <Button type="submit" className="w-full" disabled={busy}>
+          {busy ? 'Signing in…' : 'Sign in'}
         </Button>
+        <p className="text-xs text-slate-500 text-center">
+          New here?{' '}
+          <Link to="/signup" className="text-brand-600 hover:underline">
+            Create an account
+          </Link>
+        </p>
       </form>
     </div>
   );

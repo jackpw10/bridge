@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { useAppStore } from '../store/appStore';
+import { signOut } from '../lib/auth';
 import { Button } from './ui/Button';
 import { NotificationsBell } from './notifications/NotificationsBell';
 import { ChangePasswordModal } from './ChangePasswordModal';
@@ -8,15 +9,13 @@ import { cn } from '../utils/cn';
 
 export function AppShell() {
   const session = useAppStore((s) => s.session);
-  const setSession = useAppStore((s) => s.setSession);
-  const users = useAppStore((s) => s.users);
   const loc = useLocation();
   const nav = useNavigate();
 
   const [pwOpen, setPwOpen] = useState(false);
 
-  function logout() {
-    setSession(null);
+  async function logout() {
+    await signOut();
     nav('/login', { replace: true });
   }
 
@@ -34,12 +33,11 @@ export function AppShell() {
     </Link>
   );
 
-  const me = users.find((u) => u.id === session?.userId);
-  const displayName = me
-    ? (me.firstName || me.lastName)
-      ? `${me.firstName} ${me.lastName}`.trim()
-      : me.username
-    : session?.username ?? '';
+  const displayName = session
+    ? session.firstName || session.lastName
+      ? `${session.firstName} ${session.lastName}`.trim()
+      : session.email
+    : '';
 
   return (
     <div className="min-h-screen flex flex-col">

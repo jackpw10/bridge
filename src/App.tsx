@@ -1,6 +1,10 @@
+import { useEffect } from 'react';
 import { Navigate, Route, Routes } from 'react-router-dom';
 import { LoginPage } from './pages/Login';
+import { SignupPage } from './pages/Signup';
 import { AppShell } from './components/AppShell';
+import { initAuth } from './store/appStore';
+import { useAppStore } from './store/appStore';
 import { RequireAdmin, RequireAuth } from './components/RouteGuards';
 import { TriagePage } from './pages/Triage';
 import { ResultPage } from './pages/Result';
@@ -26,10 +30,48 @@ function ShellWithPolling() {
   return <AppShell />;
 }
 
+function BootScreen() {
+  return (
+    <div className="min-h-screen flex items-center justify-center bg-slate-50 text-slate-500">
+      <div className="text-center">
+        <div className="text-3xl font-bold text-slate-800 mb-2">BRIDGE</div>
+        <div className="text-sm">Loading…</div>
+      </div>
+    </div>
+  );
+}
+
+function ErrorScreen({ message }: { message: string }) {
+  return (
+    <div className="min-h-screen flex items-center justify-center bg-red-50 text-red-800 p-6">
+      <div className="max-w-md">
+        <h1 className="text-xl font-bold mb-2">Couldn't connect to the backend</h1>
+        <p className="text-sm mb-2">{message}</p>
+        <p className="text-xs text-red-600">
+          Check that VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY are set, that
+          the Supabase project is reachable, and that the schema has been
+          applied.
+        </p>
+      </div>
+    </div>
+  );
+}
+
 export default function App() {
+  const loading = useAppStore((s) => s.loading);
+  const error = useAppStore((s) => s.error);
+
+  useEffect(() => {
+    initAuth();
+  }, []);
+
+  if (error) return <ErrorScreen message={error} />;
+  if (loading) return <BootScreen />;
+
   return (
     <Routes>
       <Route path="/login" element={<LoginPage />} />
+      <Route path="/signup" element={<SignupPage />} />
       <Route
         element={
           <RequireAuth>

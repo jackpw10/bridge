@@ -4,13 +4,17 @@ import { useAppStore } from '../store/appStore';
 
 export function RequireAuth({ children }: { children: ReactNode }) {
   const session = useAppStore((s) => s.session);
+  const loading = useAppStore((s) => s.loading);
   const loc = useLocation();
+  if (loading) return null;
   if (!session) return <Navigate to="/login" state={{ from: loc }} replace />;
   return <>{children}</>;
 }
 
 export function RequireAdmin({ children }: { children: ReactNode }) {
   const session = useAppStore((s) => s.session);
+  const loading = useAppStore((s) => s.loading);
+  if (loading) return null;
   if (!session) return <Navigate to="/login" replace />;
   if (session.role !== 'admin') return <Navigate to="/triage" replace />;
   return <>{children}</>;

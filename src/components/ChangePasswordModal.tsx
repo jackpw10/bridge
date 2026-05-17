@@ -1,9 +1,9 @@
 import { useState } from 'react';
-import { useAppStore } from '../store/appStore';
-import { hashPassword, verifyPassword } from '../utils/hash';
 import { Modal } from './ui/Modal';
 import { Button } from './ui/Button';
 import { Input } from './ui/Input';
+import { changeOwnPassword, signIn } from '../lib/auth';
+import { useAppStore } from '../store/appStore';
 
 interface Props {
   open: boolean;
@@ -12,14 +12,13 @@ interface Props {
 
 export function ChangePasswordModal({ open, onClose }: Props) {
   const session = useAppStore((s) => s.session);
-  const users = useAppStore((s) => s.users);
-  const setUsers = useAppStore((s) => s.setUsers);
 
   const [oldPw, setOldPw] = useState('');
   const [newPw, setNewPw] = useState('');
   const [confirm, setConfirm] = useState('');
   const [err, setErr] = useState<string | null>(null);
   const [ok, setOk] = useState(false);
+  const [busy, setBusy] = useState(false);
 
   function reset() {
     setOldPw('');
@@ -34,18 +33,30 @@ export function ChangePasswordModal({ open, onClose }: Props) {
     onClose();
   }
 
-  function submit() {
+  async function submit() {
     setErr(null);
     setOk(false);
     if (!session) return;
-    const me = users.find((u) => u.id === session.userId);
-    if (!me) return setErr('Account not found.');
-    if (!verifyPassword(oldPw, me.passwordHash)) return setErr('Current password is incorrect.');
-    if (!newPw) return setErr('Enter a new password.');
+    if (!oldPw) return setErr('Enter your current password.');
+    if (newPw.length < 6) return setErr('New password must be at least 6 characters.');
     if (newPw === oldPw) return setErr('New password must be different from current password.');
     if (newPw !== confirm) return setErr('New passwords do not match.');
 
-    setUsers(users.map((u) => (u.id === me.id ? { ...u, passwordHash: hashPassword(newPw) } : u)));
+    setBusy(true);
+    // Verify current password by re-signing in (Supabase doesn't have a
+    // dedicated "verify current password" endpoint).
+    const { error: verifyErr } = await signIn(session.email, oldPw);
+    if (verifyErr) {
+      setBusy(false);
+      setErr('Current password is incorrect.');
+      return;
+    }
+    const { error } = await changeOwnPassword(newPw);
+    setBusy(false);
+    if (error) {
+      setErr(error.message);
+      return;
+    }
     setOk(true);
     setOldPw('');
     setNewPw('');
@@ -62,7 +73,7 @@ export function ChangePasswordModal({ open, onClose }: Props) {
       footer={
         <>
           <Button variant="ghost" onClick={handleClose}>Close</Button>
-          <Button onClick={submit}>Update</Button>
+          <Button onClick={submit} disabled={busy}>{busy ? 'Updating…' : 'Update'}</Button>
         </>
       }
     >
