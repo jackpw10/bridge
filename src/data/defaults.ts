@@ -12,12 +12,25 @@ import type {
 // All IDs below are static so cross-references survive a reset.
 
 export const defaultCallTypes: CallType[] = [
-  { id: 'ct_llto', name: 'LLTO' },
-  { id: 'ct_hloc', name: 'HLOC' },
-  { id: 'ct_advice', name: 'Advice' },
-  { id: 'ct_repate', name: 'REPATE' },
-  { id: 'ct_scheduled', name: 'Scheduled' },
-  { id: 'ct_discharge', name: 'Discharge' },
+  {
+    id: 'ct_high_acuity',
+    name: 'High Acuity',
+    subVersions: [
+      { id: 'llto', name: 'LLTO' },
+      { id: 'hloc', name: 'HLOC' },
+    ],
+  },
+  {
+    id: 'ct_advice',
+    name: 'Advice',
+    subVersions: [
+      { id: 'llto', name: 'LLTO' },
+      { id: 'hloc', name: 'HLOC' },
+    ],
+  },
+  { id: 'ct_repate', name: 'Repate', subVersions: [] },
+  { id: 'ct_scheduled', name: 'Scheduled', subVersions: [] },
+  { id: 'ct_discharge', name: 'Discharge', subVersions: [] },
 ];
 
 export const defaultHealthAuthorities: HealthAuthority[] = [
@@ -26,56 +39,171 @@ export const defaultHealthAuthorities: HealthAuthority[] = [
 ];
 
 export const defaultWorkflows: Workflow[] = [
+  // -------- High Acuity --------
   {
     id: 'wf_high_acuity',
-    name: 'High Acuity Workflow',
-    callTypeId: 'ct_llto',
+    name: 'High Acuity',
+    callTypeId: 'ct_high_acuity',
+    subVersionResolver: {
+      questionId: 'wfq_ha_triage',
+      answerMap: { Yes: 'llto', No: 'hloc' },
+    },
     questions: [
-      { id: 'q_facility', type: 'facility', text: 'Sending facility' },
+      { id: 'wfq_ha_sending', type: 'facility', text: 'Sending facility' },
       {
-        id: 'q_specialty',
-        type: 'specialty_multi',
-        text: 'Which specialty service(s) are required?',
+        id: 'wfq_ha_triage',
+        type: 'yesno',
+        text: 'Is this a Lateral / Lower Triage Outside (LLTO) transfer? (Yes = LLTO, No = HLOC)',
       },
+      { id: 'wfq_ha_dx', type: 'diagnosis_multi', text: 'Working / suspected diagnoses' },
+      { id: 'wfq_ha_svc', type: 'specialty_multi', text: 'Which specialty service(s) are required?' },
+      { id: 'wfq_ha_referral', type: 'referral_resolve', text: 'Confirm receiving facility' },
+    ],
+    postTriage: {
+      mode: 'questions',
+      showServicePreQuestions: true,
+      questions: [
+        { id: 'ptq_ha_ptn', type: 'yesno', text: 'Was the patient accepted outside of PTN?' },
+      ],
+    },
+    processSteps: [],
+  },
+
+  // -------- Advice --------
+  {
+    id: 'wf_advice',
+    name: 'Advice',
+    callTypeId: 'ct_advice',
+    subVersionResolver: {
+      questionId: 'wfq_adv_triage',
+      answerMap: { Yes: 'llto', No: 'hloc' },
+    },
+    questions: [
+      { id: 'wfq_adv_sending', type: 'facility', text: 'Sending facility' },
       {
-        id: 'q_diagnosis',
-        type: 'diagnosis_multi',
-        text: 'Working / suspected diagnoses',
+        id: 'wfq_adv_triage',
+        type: 'yesno',
+        text: 'Is this a Lateral / Lower Triage Outside (LLTO) advice call? (Yes = LLTO, No = HLOC)',
       },
+      { id: 'wfq_adv_dx', type: 'diagnosis_multi', text: 'Working / suspected diagnoses' },
+      { id: 'wfq_adv_svc', type: 'specialty_multi', text: 'Which specialty service(s) are required?' },
+      { id: 'wfq_adv_referral', type: 'referral_resolve', text: 'Confirm receiving facility' },
+    ],
+    postTriage: {
+      mode: 'questions',
+      showServicePreQuestions: true,
+      questions: [],
+    },
+    processSteps: [],
+  },
+
+  // -------- Repate --------
+  {
+    id: 'wf_repate',
+    name: 'Repate',
+    callTypeId: 'ct_repate',
+    questions: [
+      { id: 'wfq_rep_sending', type: 'facility', text: 'Sending facility' },
+      { id: 'wfq_rep_dx', type: 'diagnosis_multi', text: 'Working / suspected diagnoses' },
+      { id: 'wfq_rep_svc', type: 'specialty_multi', text: 'Which specialty service(s) are required?' },
+      { id: 'wfq_rep_receiving', type: 'receiving_facility', text: 'Receiving facility' },
+    ],
+    postTriage: {
+      mode: 'questions',
+      showServicePreQuestions: true,
+      questions: [
+        { id: 'ptq_rep_ptn', type: 'yesno', text: 'Was the patient accepted outside of PTN?' },
+      ],
+    },
+    processSteps: [],
+  },
+
+  // -------- Scheduled --------
+  {
+    id: 'wf_scheduled',
+    name: 'Scheduled',
+    callTypeId: 'ct_scheduled',
+    questions: [
       {
-        id: 'q_referral',
-        type: 'referral_resolve',
-        text: 'Confirm receiving facility',
+        id: 'wfq_sch_sending',
+        type: 'facility',
+        text: 'Sending facility (or address)',
+        allowFreeText: true,
+      },
+      { id: 'wfq_sch_dx', type: 'diagnosis_multi', text: 'Working / suspected diagnoses' },
+      { id: 'wfq_sch_svc', type: 'specialty_multi', text: 'Which specialty service(s) are required?' },
+      {
+        id: 'wfq_sch_receiving',
+        type: 'receiving_facility',
+        text: 'Receiving facility (or address)',
+        allowFreeText: true,
       },
     ],
     postTriage: {
-      enabled: true,
-      showServicePreQuestions: true,
-      questions: [
+      mode: 'transport_requirements',
+      items: [
         {
-          id: 'ptq_ptn',
-          type: 'yesno',
-          text: 'Was the patient accepted outside of PTN?',
+          id: 'tr_mode',
+          type: 'multiselect',
+          label: 'Transport mode required',
+          options: [
+            { id: 'gnd', label: 'Ground ambulance' },
+            { id: 'air', label: 'Air ambulance' },
+            { id: 'pt', label: 'Patient transport' },
+          ],
+        },
+        {
+          id: 'tr_notes',
+          type: 'text',
+          label: 'Additional transport notes',
         },
       ],
     },
-    processSteps: [
-      { id: 'ps_1', text: 'Confirm receiving bed availability' },
-      { id: 'ps_2', text: 'Arrange ground transport via dispatch' },
-      { id: 'ps_3', text: 'Document acceptance and ETA' },
+    processSteps: [],
+  },
+
+  // -------- Discharge --------
+  {
+    id: 'wf_discharge',
+    name: 'Discharge',
+    callTypeId: 'ct_discharge',
+    questions: [
       {
-        id: 'ps_4',
-        text: 'Confirm outside-PTN acceptance',
-        condQid: 'ptq_ptn',
-        condVal: 'Yes',
+        id: 'wfq_dis_sending',
+        type: 'facility',
+        text: 'Sending facility (or address)',
+        allowFreeText: true,
       },
+      { id: 'wfq_dis_dx', type: 'diagnosis_multi', text: 'Working / suspected diagnoses' },
+      { id: 'wfq_dis_svc', type: 'specialty_multi', text: 'Which specialty service(s) are required?' },
       {
-        id: 'ps_5',
-        text: 'Engage IFT coordinator for inter-region transfer',
-        condQid: 'ptq_ptn',
-        condVal: 'Yes',
+        id: 'wfq_dis_receiving',
+        type: 'receiving_facility',
+        text: 'Receiving facility (or address)',
+        allowFreeText: true,
       },
     ],
+    postTriage: {
+      mode: 'transport_requirements',
+      items: [
+        {
+          id: 'tr_dis_mode',
+          type: 'multiselect',
+          label: 'Transport mode required',
+          options: [
+            { id: 'gnd', label: 'Ground ambulance' },
+            { id: 'air', label: 'Air ambulance' },
+            { id: 'pt', label: 'Patient transport' },
+          ],
+        },
+        {
+          id: 'tr_dis_notes',
+          type: 'text',
+          label: 'Additional transport notes',
+        },
+      ],
+    },
+    processSteps: [],
   },
 ];
 
@@ -83,71 +211,13 @@ export const defaultSpecialtyServices: SpecialtyService[] = [
   {
     id: 'svc_card',
     name: 'Cardiology',
-    templates: {
-      ct_llto: {
-        preQuestions: [
-          { id: 'sq_card_l1', type: 'yesno', text: 'Has 12-lead ECG been transmitted?' },
-          {
-            id: 'sq_card_l2',
-            type: 'dropdown',
-            text: 'Troponin trend',
-            options: ['Rising', 'Falling', 'Stable', 'Unknown'],
-          },
-        ],
-        exceptionSteps: [
-          {
-            id: 'sx_card_l1',
-            text: 'Escalate to interventional cardiology on-call if troponin rising',
-            condQid: 'sq_card_l2',
-            condVal: 'Rising',
-          },
-        ],
-      },
-      ct_hloc: {
-        preQuestions: [
-          { id: 'sq_card_h1', type: 'yesno', text: 'Is the patient hemodynamically unstable?' },
-        ],
-        exceptionSteps: [
-          {
-            id: 'sx_card_h1',
-            text: 'Activate cath lab and notify CCU charge',
-            condQid: 'sq_card_h1',
-            condVal: 'Yes',
-          },
-        ],
-      },
-    },
+    templates: {},
     transportAdvisor: { enabled: false, cards: [] },
   },
   {
     id: 'svc_neuro',
     name: 'Neurology',
-    templates: {
-      ct_llto: {
-        preQuestions: [
-          { id: 'sq_neuro_l1', type: 'yesno', text: 'Has CT head been performed?' },
-        ],
-        exceptionSteps: [],
-      },
-      ct_hloc: {
-        preQuestions: [
-          {
-            id: 'sq_neuro_h1',
-            type: 'dropdown',
-            text: 'NIH stroke scale',
-            options: ['0-4', '5-15', '16-20', '21+'],
-          },
-        ],
-        exceptionSteps: [
-          {
-            id: 'sx_neuro_h1',
-            text: 'Activate stroke protocol; notify neuro-interventional radiology',
-            condQid: 'sq_neuro_h1',
-            condVal: '16-20',
-          },
-        ],
-      },
-    },
+    templates: {},
     transportAdvisor: { enabled: false, cards: [] },
   },
 ];
@@ -163,7 +233,7 @@ export const defaultFacilities: Facility[] = [
       {
         id: 'nr_vgh_1',
         text: 'Notify Transfer Center at extension 2200',
-        callTypeIds: [],     // empty = all call types
+        callTypeIds: [],
         svcIds: [],
         excludeSvcIds: [],
       },

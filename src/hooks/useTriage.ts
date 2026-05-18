@@ -4,6 +4,7 @@ import { useTriageStore } from '../store/triageStore';
 import type {
   AcQueueItem,
   CardOverridePart,
+  Condition,
   ExceptionStep,
   Facility,
   ProcessStep,
@@ -13,6 +14,29 @@ import type {
   Workflow,
   WorkflowQuestion,
 } from '../types';
+
+// --------------------- Condition resolution ---------------------
+function resolveConditions(
+  step: { condQid?: string; condVal?: string; conditions?: Condition[] }
+): Condition[] {
+  if (step.conditions && step.conditions.length > 0) return step.conditions;
+  if (step.condQid && step.condVal !== undefined) {
+    return [{ qid: step.condQid, equals: step.condVal }];
+  }
+  return [];
+}
+
+function evalConditions(
+  conds: Condition[],
+  answers: Record<string, string>
+): boolean {
+  for (const c of conds) {
+    const a = (answers[c.qid] ?? '').toLowerCase();
+    const want = (c.equals ?? '').toLowerCase();
+    if (a !== want && !a.includes(want)) return false;
+  }
+  return true;
+}
 
 function isQuestionVisible(
   q: WorkflowQuestion,
@@ -40,14 +64,23 @@ function findContext(
   const scan = upToIndex === undefined ? visible : visible.slice(0, upToIndex);
 
   let facId: string | null = null;
+  let facFreeText: string | null = null;
   let svcIds: string[] = [];
   let destFacId: string | null = null;
+  let destFreeText: string | null = null;
   let diagnoses: string[] = [];
 
   for (const q of scan) {
     if (q.type === 'facility') {
       const f = answers[`${q.id}__facid`];
       if (f) facId = f;
+      const txt = answers[`${q.id}__freetext`];
+      if (txt) facFreeText = txt;
+    } else if (q.type === 'receiving_facility') {
+      const f = answers[`${q.id}__facid`];
+      if (f) destFacId = f;
+      const txt = answers[`${q.id}__freetext`];
+      if (txt) destFreeText = txt;
     } else if (q.type === 'specialty_multi') {
       const raw = answers[`${q.id}__svcs`];
       if (raw) {
@@ -67,7 +100,7 @@ function findContext(
       }
     }
   }
-  return { facId, svcIds, destFacId, diagnoses };
+  return { facId, facFreeText, svcIds, destFacId, destFreeText, diagnoses };
 }
 
 function applyOrder<T extends { id: string }>(all: T[], order: string[]): T[] {
@@ -76,10 +109,7 @@ function applyOrder<T extends { id: string }>(all: T[], order: string[]): T[] {
   const out: T[] = [];
   for (const id of order) {
     const q = map.get(id);
-    if (q) {
-      out.push(q);
-      map.delete(id);
-    }
+    if (q) { out.push(q); map.delete(id); }
   }
   for (const q of map.values()) out.push(q);
   return out;
@@ -88,9 +118,11 @@ function applyOrder<T extends { id: string }>(all: T[], order: string[]): T[] {
 function getActiveCardQs(
   service: SpecialtyService,
   override: CardOverridePart | null,
-  callTypeId: string
+  callTypeId: string,
+  subVersionId: string
 ): TemplateQuestion[] {
-  const tpl = service.templates[callTypeId];
+  const byCt = service.templates[callTypeId] ?? {};
+  const tpl = byCt[subVersionId];
   const baseQs = tpl?.preQuestions ?? [];
   const base = baseQs.filter((q) => !override?.deactivated.includes(q.id));
   const all = [...base, ...(override?.addedQuestions ?? [])];
@@ -101,25 +133,24 @@ function getActiveCardSteps(
   service: SpecialtyService,
   override: CardOverridePart | null,
   callTypeId: string,
+  subVersionId: string,
   preAnswers: Record<string, string>
 ): ExceptionStep[] {
-  const tpl = service.templates[callTypeId];
+  const byCt = service.templates[callTypeId] ?? {};
+  const tpl = byCt[subVersionId];
   const baseSteps = tpl?.exceptionSteps ?? [];
   const base = baseSteps.filter((s) => !override?.deactivated.includes(s.id));
   const all = [...base, ...(override?.addedSteps ?? [])];
   const ordered = applyOrder(all, override?.sOrder ?? []);
-  return ordered.filter((s) => {
-    if (!s.condQid) return true;
-    const a = (preAnswers[s.condQid] ?? '').toLowerCase();
-    const want = (s.condVal ?? '').toLowerCase();
-    return a === want;
-  });
+  return ordered.filter((s) => evalConditions(resolveConditions(s), preAnswers));
 }
 
 export interface UseTriageResult {
   activeWorkflow: Workflow | null;
   callTypeId: string;
   callTypeName: string;
+  subVersionId: string;       // 'default' if call type has no sub-versions
+  subVersionName: string;     // empty if 'default'
   hasReferralQuestion: boolean;
 
   answers: Record<string, string>;
@@ -153,10 +184,16 @@ export interface UseTriageResult {
   markNotifsSent: () => void;
   setNotes: (s: string) => void;
 
-  getActiveCardQs: (svcId: string, callTypeId: string, facId: string) => TemplateQuestion[];
+  getActiveCardQs: (
+    svcId: string,
+    callTypeId: string,
+    subVersionId: string,
+    facId: string
+  ) => TemplateQuestion[];
   getActiveCardSteps: (
     svcId: string,
     callTypeId: string,
+    subVersionId: string,
     facId: string,
     preAnswers: Record<string, string>
   ) => ExceptionStep[];
@@ -197,7 +234,8 @@ export function useTriage(): UseTriageResult {
   );
 
   const callTypeId = activeWorkflow?.callTypeId ?? '';
-  const callTypeName = callTypes.find((c) => c.id === callTypeId)?.name ?? '';
+  const callType = callTypes.find((c) => c.id === callTypeId);
+  const callTypeName = callType?.name ?? '';
 
   const workflowQuestions = activeWorkflow?.questions ?? [];
 
@@ -211,6 +249,23 @@ export function useTriage(): UseTriageResult {
     [visibleQuestions, answers]
   );
 
+  // ----- Sub-version resolution -----
+  const subVersionId = useMemo(() => {
+    if (!activeWorkflow) return 'default';
+    if (!callType || callType.subVersions.length === 0) return 'default';
+    const r = activeWorkflow.subVersionResolver;
+    if (!r) return callType.subVersions[0]?.id ?? 'default';
+    const ans = answers[r.questionId] ?? '';
+    const mapped = r.answerMap[ans];
+    if (mapped && callType.subVersions.some((sv) => sv.id === mapped)) return mapped;
+    return callType.subVersions[0]?.id ?? 'default';
+  }, [activeWorkflow, callType, answers]);
+
+  const subVersionName = useMemo(() => {
+    if (!callType || callType.subVersions.length === 0) return '';
+    return callType.subVersions.find((sv) => sv.id === subVersionId)?.name ?? '';
+  }, [callType, subVersionId]);
+
   const acQueue: AcQueueItem[] = useMemo(() => {
     if (!context.destFacId || context.svcIds.length === 0) return [];
     return context.svcIds.map((svcId) => ({
@@ -222,15 +277,15 @@ export function useTriage(): UseTriageResult {
   const destFacility = facilities.find((f) => f.id === context.destFacId) ?? null;
   const sendingFacility = facilities.find((f) => f.id === context.facId) ?? null;
 
+  // ----- Process step filtering — supports multi-conditions -----
   const activeProcessSteps = useMemo(() => {
     if (!activeWorkflow) return [];
-    return activeWorkflow.processSteps.filter((s) => {
-      if (!s.condQid) return true;
-      const a = (postTriageAnswers[s.condQid] ?? '').toLowerCase();
-      const want = (s.condVal ?? '').toLowerCase();
-      return a === want;
-    });
-  }, [activeWorkflow, postTriageAnswers]);
+    // Conditions can reference workflow answers OR post-triage answers.
+    const merged: Record<string, string> = { ...answers, ...postTriageAnswers };
+    return activeWorkflow.processSteps.filter((s) =>
+      evalConditions(resolveConditions(s), merged)
+    );
+  }, [activeWorkflow, answers, postTriageAnswers]);
 
   const hasReferralQuestion = workflowQuestions.some((q) => q.type === 'referral_resolve');
 
@@ -239,21 +294,29 @@ export function useTriage(): UseTriageResult {
   const goToWorkflow = useCallback(() => setPhase('workflow'), [setPhase]);
 
   const getActiveCardQsWrapped = useCallback(
-    (svcId: string, ctId: string, facId: string): TemplateQuestion[] => {
+    (svcId: string, ctId: string, svId: string, facId: string): TemplateQuestion[] => {
       const svc = specialty.find((s) => s.id === svcId);
       if (!svc) return [];
       const ov = overrides.find((o) => o.facilityId === facId && o.svcId === svcId);
-      return getActiveCardQs(svc, ov?.parts[ctId] ?? null, ctId);
+      const partKey = `${ctId}:${svId}`;
+      return getActiveCardQs(svc, ov?.parts[partKey] ?? null, ctId, svId);
     },
     [specialty, overrides]
   );
 
   const getActiveCardStepsWrapped = useCallback(
-    (svcId: string, ctId: string, facId: string, preAnswers: Record<string, string>): ExceptionStep[] => {
+    (
+      svcId: string,
+      ctId: string,
+      svId: string,
+      facId: string,
+      preAnswers: Record<string, string>
+    ): ExceptionStep[] => {
       const svc = specialty.find((s) => s.id === svcId);
       if (!svc) return [];
       const ov = overrides.find((o) => o.facilityId === facId && o.svcId === svcId);
-      return getActiveCardSteps(svc, ov?.parts[ctId] ?? null, ctId, preAnswers);
+      const partKey = `${ctId}:${svId}`;
+      return getActiveCardSteps(svc, ov?.parts[partKey] ?? null, ctId, svId, preAnswers);
     },
     [specialty, overrides]
   );
@@ -262,6 +325,8 @@ export function useTriage(): UseTriageResult {
     activeWorkflow,
     callTypeId,
     callTypeName,
+    subVersionId,
+    subVersionName,
     hasReferralQuestion,
     answers,
     currentIndex,

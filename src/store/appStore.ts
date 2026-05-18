@@ -2,7 +2,6 @@ import { create } from 'zustand';
 import type {
   CallType,
   CardOverride,
-  CardOverridePart,
   Diagnosis,
   Facility,
   HealthAuthority,
@@ -14,6 +13,7 @@ import type {
 } from '../types';
 import { supabase } from '../lib/supabase';
 import {
+  type CallTypeRow,
   type CardOverrideRow,
   type DiagnosisRow,
   type FacilityRow,
@@ -23,6 +23,7 @@ import {
   type SpecialtyServiceRow,
   type WorkflowRow,
   callTypeFromRow,
+  callTypeToRow,
   facilityFromRow,
   facilityToRow,
   svcFromRow,
@@ -106,7 +107,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   setCallTypes: async (next) => {
     const prev = get().callTypes;
     set({ callTypes: next });
-    await diffSyncList(prev, next, 'call_types');
+    await diffSyncList(prev.map(callTypeToRow), next.map(callTypeToRow), 'call_types');
   },
   setWorkflows: async (next) => {
     const prev = get().workflows;
@@ -191,182 +192,126 @@ async function diffSyncList<R extends { id: string }>(
 }
 
 // =========================================================================
-// MIGRATION: convert existing data to the new call-type-based shape.
-// Runs once before the initial fetch.
+// MIGRATION v3: rewrite call types to be workflow-types (High Acuity etc.),
+// each with optional sub-versions (e.g. High Acuity has LLTO/HLOC). Service
+// templates become nested by (callType, subVersion). Per the user's call,
+// service-template CONTENT is wiped — admins repopulate via the UI.
+// Runs idempotently: detection key is whether `ct_high_acuity` exists.
 // =========================================================================
-async function migrateToCallTypes() {
-  // 1) Seed call_types if empty.
-  const { count: ctCount } = await supabase
+async function migrateV3() {
+  const { data: existingHighAcuity } = await supabase
     .from('call_types')
-    .select('id', { count: 'exact', head: true });
-  if ((ctCount ?? 0) === 0) {
-    await supabase.from('call_types').insert(defaultCallTypes);
-  }
+    .select('id')
+    .eq('id', 'ct_high_acuity')
+    .maybeSingle();
+  if (existingHighAcuity) return; // already migrated
 
-  // 2) Specialty services: if a row has empty `templates` JSON and has the
-  // legacy `template` JSON with llto/hloc keys, copy it across.
-  const { data: svcs } = await supabase
-    .from('specialty_services')
-    .select('id, template, templates');
-  for (const s of (svcs ?? []) as Array<{ id: string; template: unknown; templates: unknown }>) {
-    const tpls = (s.templates as Record<string, unknown>) ?? {};
-    if (Object.keys(tpls).length > 0) continue;
-    const legacy = (s.template as { llto?: unknown; hloc?: unknown } | null) ?? null;
-    if (!legacy) continue;
-    const newTemplates: Record<string, unknown> = {};
-    if (legacy.llto) newTemplates['ct_llto'] = legacy.llto;
-    if (legacy.hloc) newTemplates['ct_hloc'] = legacy.hloc;
-    if (Object.keys(newTemplates).length === 0) continue;
+  // 1) Replace call_types with the new defaults.
+  await supabase.from('call_types').delete().neq('id', '__none__');
+  await supabase.from('call_types').insert(defaultCallTypes.map(callTypeToRow));
+
+  // 2) Wipe service template content. (transportAdvisor cards keep config
+  //    but their callTypeIds get cleared since those referenced the old IDs.)
+  const { data: svcs } = await supabase.from('specialty_services').select('id, transport_advisor');
+  for (const s of (svcs ?? []) as Array<{ id: string; transport_advisor: unknown }>) {
+    const ta = (s.transport_advisor as { enabled?: boolean; cards?: Array<Record<string, unknown>> } | null) ?? null;
+    const cards = (ta?.cards ?? []).map((c) => ({ ...c, callTypeIds: [] }));
     await supabase
       .from('specialty_services')
-      .update({ templates: newTemplates })
+      .update({ templates: {}, transport_advisor: { enabled: ta?.enabled ?? false, cards } })
       .eq('id', s.id);
   }
 
-  // 3) Card overrides: if `parts` is empty, copy from `llto` + `hloc` columns.
-  const { data: ovs } = await supabase
-    .from('card_overrides')
-    .select('id, llto, hloc, parts');
-  for (const o of (ovs ?? []) as Array<{ id: string; llto: unknown; hloc: unknown; parts: unknown }>) {
-    const parts = (o.parts as Record<string, unknown>) ?? {};
-    if (Object.keys(parts).length > 0) continue;
-    const newParts: Record<string, CardOverridePart> = {};
-    if (o.llto) newParts['ct_llto'] = o.llto as CardOverridePart;
-    if (o.hloc) newParts['ct_hloc'] = o.hloc as CardOverridePart;
-    if (Object.keys(newParts).length === 0) continue;
-    await supabase
-      .from('card_overrides')
-      .update({ parts: newParts })
-      .eq('id', o.id);
-  }
+  // 3) Wipe card overrides — they referenced the old call type IDs.
+  await supabase.from('card_overrides').delete().neq('id', '__none__');
 
-  // 4) Workflows: assign call_type_id if missing. Also strip 'triage' special
-  // behavior (the question stays but won't drive versions) and flatten old
-  // 4-bucket process steps to a flat list with conditions.
+  // 4) Migrate workflows.
   const { data: wfs } = await supabase
     .from('workflows')
-    .select('id, call_type_id, questions, post_triage, process_steps');
+    .select('id, name, call_type_id, questions, post_triage, process_steps');
   for (const w of (wfs ?? []) as Array<{
     id: string;
+    name: string;
     call_type_id: string;
     questions: unknown;
     post_triage: unknown;
     process_steps: unknown;
   }>) {
-    let dirty = false;
-    const update: Record<string, unknown> = {};
+    const questions = ((w.questions as Array<Record<string, unknown>>) ?? []).map((q) => {
+      if (q.type === 'triage') return { ...q, type: 'yesno' };
+      return q;
+    }) as unknown as Workflow['questions'];
 
-    if (!w.call_type_id) {
-      // Default to LLTO if questions include a 'triage' question — that's the
-      // most common case (the old "High Acuity Workflow").
-      update.call_type_id = 'ct_llto';
-      dirty = true;
-    }
+    // Try to detect a triage question (yes/no with LLTO/HLOC in text) for the resolver.
+    const triageQ = (questions as unknown as Array<Record<string, unknown>>).find(
+      (q) =>
+        q.type === 'yesno' &&
+        typeof q.text === 'string' &&
+        /llto|hloc/i.test(q.text as string)
+    );
 
-    // Flatten 4-bucket process steps to a flat array with conditions, but
-    // only if process_steps is currently shaped like the old 4-bucket object.
-    const ps = w.process_steps as
-      | { lltoNo?: unknown[]; lltoYes?: unknown[]; hlocNo?: unknown[]; hlocYes?: unknown[] }
-      | unknown[];
-    if (!Array.isArray(ps) && ps && typeof ps === 'object') {
-      const pt = w.post_triage as { questions?: Array<{ id: string; drivesPtnBucket?: boolean }> } | null;
-      const driver = pt?.questions?.find((q) => q.drivesPtnBucket);
-      const flat: Array<Record<string, unknown>> = [];
-      for (const step of (ps.lltoNo ?? [])) flat.push(step as Record<string, unknown>);
-      for (const step of (ps.hlocNo ?? [])) flat.push(step as Record<string, unknown>);
-      if (driver) {
-        for (const step of (ps.lltoYes ?? [])) {
-          flat.push({ ...(step as Record<string, unknown>), condQid: driver.id, condVal: 'Yes' });
+    // Pick a new call type. Default to ct_high_acuity since the existing
+    // workflow was the High Acuity Workflow.
+    const callTypeId = 'ct_high_acuity';
+
+    const subVersionResolver = triageQ
+      ? { questionId: triageQ.id as string, answerMap: { Yes: 'llto', No: 'hloc' } }
+      : undefined;
+
+    // Wrap post_triage in the new union shape (questions mode).
+    const ptObj = (w.post_triage as { enabled?: boolean; showServicePreQuestions?: boolean; questions?: unknown[] } | null) ?? null;
+    const post_triage = ptObj?.enabled
+      ? {
+          mode: 'questions',
+          showServicePreQuestions: !!ptObj.showServicePreQuestions,
+          questions: ptObj.questions ?? [],
         }
-        for (const step of (ps.hlocYes ?? [])) {
-          flat.push({ ...(step as Record<string, unknown>), condQid: driver.id, condVal: 'Yes' });
-        }
-      } else {
-        for (const step of (ps.lltoYes ?? [])) flat.push(step as Record<string, unknown>);
-        for (const step of (ps.hlocYes ?? [])) flat.push(step as Record<string, unknown>);
-      }
-      update.process_steps = flat;
-      dirty = true;
-    }
+      : { mode: 'none' };
 
-    // Strip drivesPtnBucket from post-triage questions (no longer used).
-    const ptObj = w.post_triage as {
-      enabled?: boolean;
-      showServicePreQuestions?: boolean;
-      questions?: Array<{ drivesPtnBucket?: boolean } & Record<string, unknown>>;
-    } | null;
-    if (ptObj?.questions?.some((q) => q.drivesPtnBucket !== undefined)) {
-      update.post_triage = {
-        ...ptObj,
-        questions: ptObj.questions.map((q) => {
-          const copy = { ...q };
-          delete copy.drivesPtnBucket;
-          return copy;
-        }),
+    const process_steps = Array.isArray(w.process_steps) ? w.process_steps : [];
+
+    await supabase
+      .from('workflows')
+      .update({
+        call_type_id: callTypeId,
+        questions,
+        post_triage,
+        process_steps,
+        ...(subVersionResolver
+          ? { /* stored inside post_triage etc. — we put it on a new column? No, we put it in the workflow row via a JSONB approach */ }
+          : {}),
+      })
+      .eq('id', w.id);
+
+    // Note: subVersionResolver is stored as part of the workflow. Since our
+    // workflows.row doesn't have a dedicated column for it, we store it in
+    // the same payload via the workflowToRow mapper. We embed by re-writing
+    // the row entirely below.
+    if (subVersionResolver) {
+      const wf: Workflow = {
+        id: w.id,
+        name: w.name,
+        callTypeId,
+        subVersionResolver,
+        questions,
+        postTriage: post_triage as Workflow['postTriage'],
+        processSteps: process_steps as Workflow['processSteps'],
       };
-      dirty = true;
-    }
-
-    if (dirty) {
-      await supabase.from('workflows').update(update).eq('id', w.id);
+      await supabase.from('workflows').update(workflowToRow(wf, 0)).eq('id', w.id);
     }
   }
 
-  // 5) Facility notification requirements: convert {llto, hloc} booleans to callTypeIds.
+  // 5) Facility notification requirements: clear callTypeIds (old IDs are gone).
   const { data: facs } = await supabase
     .from('facilities')
     .select('id, notification_requirements');
   for (const f of (facs ?? []) as Array<{ id: string; notification_requirements: unknown }>) {
     const arr = (f.notification_requirements as Array<Record<string, unknown>>) ?? [];
-    let mutated = false;
-    const next = arr.map((nr) => {
-      if (nr.callTypeIds !== undefined) return nr;
-      const callTypeIds: string[] = [];
-      if (nr.llto === true) callTypeIds.push('ct_llto');
-      if (nr.hloc === true) callTypeIds.push('ct_hloc');
-      // If both llto+hloc were true, leave callTypeIds as [llto, hloc].
-      // If neither, leave empty (i.e. all call types).
-      mutated = true;
-      const copy: Record<string, unknown> = { ...nr, callTypeIds };
-      delete copy.llto;
-      delete copy.hloc;
-      return copy;
-    });
-    if (mutated) {
-      await supabase
-        .from('facilities')
-        .update({ notification_requirements: next })
-        .eq('id', f.id);
-    }
-  }
-
-  // 6) Specialty services' transportAdvisor cards: convert llto/hloc booleans to callTypeIds.
-  const { data: svcs2 } = await supabase
-    .from('specialty_services')
-    .select('id, transport_advisor');
-  for (const s of (svcs2 ?? []) as Array<{ id: string; transport_advisor: unknown }>) {
-    const ta = s.transport_advisor as
-      | { enabled?: boolean; cards?: Array<Record<string, unknown>> }
-      | null;
-    if (!ta?.cards) continue;
-    let mutated = false;
-    const cards = ta.cards.map((c) => {
-      if (c.callTypeIds !== undefined) return c;
-      const callTypeIds: string[] = [];
-      if (c.llto === true) callTypeIds.push('ct_llto');
-      if (c.hloc === true) callTypeIds.push('ct_hloc');
-      mutated = true;
-      const copy: Record<string, unknown> = { ...c, callTypeIds };
-      delete copy.llto;
-      delete copy.hloc;
-      return copy;
-    });
-    if (mutated) {
-      await supabase
-        .from('specialty_services')
-        .update({ transport_advisor: { ...ta, cards } })
-        .eq('id', s.id);
-    }
+    const next = arr.map((nr) => ({ ...nr, callTypeIds: [] }));
+    await supabase
+      .from('facilities')
+      .update({ notification_requirements: next })
+      .eq('id', f.id);
   }
 }
 
@@ -382,13 +327,14 @@ async function seedIfEmpty() {
       .eq('id', 'main')
       .maybeSingle();
     if (legacyWf && (legacyWf as LegacyWorkflowRow).questions) {
+      // We have legacy v1 data — bring it in as the High Acuity Workflow.
       const wf: Workflow = {
         id: 'wf_high_acuity',
         name: 'High Acuity Workflow',
-        callTypeId: 'ct_llto',
+        callTypeId: 'ct_high_acuity',
         questions: ((legacyWf as LegacyWorkflowRow).questions as Workflow['questions']) ?? [],
         postTriage: {
-          enabled: true,
+          mode: 'questions',
           showServicePreQuestions: true,
           questions: [
             {
@@ -414,7 +360,7 @@ async function seedIfEmpty() {
     toRow: (item: T) => unknown;
   };
   const seeds: Seedable<unknown>[] = [
-    { table: 'call_types',         defaults: defaultCallTypes,          toRow: (x) => x } as Seedable<unknown>,
+    { table: 'call_types',         defaults: defaultCallTypes,          toRow: (x) => callTypeToRow(x as CallType) } as Seedable<unknown>,
     { table: 'health_authorities', defaults: defaultHealthAuthorities,  toRow: (x) => x } as Seedable<unknown>,
     { table: 'specialty_services', defaults: defaultSpecialtyServices,  toRow: (x) => svcToRow(x as SpecialtyService) } as Seedable<unknown>,
     { table: 'facilities',         defaults: defaultFacilities,         toRow: (x) => facilityToRow(x as Facility) } as Seedable<unknown>,
@@ -441,8 +387,8 @@ async function seedIfEmpty() {
 
 export async function loadAllData(): Promise<void> {
   try {
+    await migrateV3();
     await seedIfEmpty();
-    await migrateToCallTypes();
     const [
       { data: ctRows },
       { data: wfRows },
@@ -468,7 +414,7 @@ export async function loadAllData(): Promise<void> {
     ]);
 
     useAppStore.setState({
-      callTypes: (ctRows ?? []).map(callTypeFromRow),
+      callTypes: ((ctRows ?? []) as CallTypeRow[]).map(callTypeFromRow),
       workflows: (wfRows as WorkflowRow[] | null ?? []).map(workflowFromRow),
       facilities: (facRows as FacilityRow[] | null ?? []).map(facilityFromRow),
       specialty: (svcRows as SpecialtyServiceRow[] | null ?? []).map(svcFromRow),

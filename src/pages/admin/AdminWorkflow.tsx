@@ -3,7 +3,13 @@ import { useAppStore } from '../../store/appStore';
 import { Card } from '../../components/ui/Card';
 import { Button } from '../../components/ui/Button';
 import { uid } from '../../utils/id';
-import type { Workflow } from '../../types';
+import type { PostTriageConfig, Workflow } from '../../types';
+
+function summarizePostTriage(p: PostTriageConfig): string {
+  if (p.mode === 'none') return 'off';
+  if (p.mode === 'questions') return `${p.questions.length} Q`;
+  return `transport reqs (${p.items.length} items)`;
+}
 
 export function AdminWorkflowPage() {
   const workflows = useAppStore((s) => s.workflows);
@@ -17,11 +23,7 @@ export function AdminWorkflowPage() {
       name: 'New workflow',
       callTypeId: firstCallType,
       questions: [],
-      postTriage: {
-        enabled: false,
-        showServicePreQuestions: false,
-        questions: [],
-      },
+      postTriage: { mode: 'none' },
       processSteps: [],
     };
     setWorkflows([...workflows, next]);
@@ -58,8 +60,8 @@ export function AdminWorkflowPage() {
                 </Link>
                 <div className="text-xs text-slate-500">
                   {w.questions.length} question{w.questions.length === 1 ? '' : 's'} ·{' '}
-                  post-triage: {w.postTriage.enabled ? 'on' : 'off'} ·{' '}
-                  {w.postTriage.questions.length} post-Q
+                  post-triage: {summarizePostTriage(w.postTriage)} ·{' '}
+                  call type: {callTypes.find((c) => c.id === w.callTypeId)?.name ?? '—'}
                 </div>
               </div>
               <div className="flex gap-2">

@@ -15,24 +15,39 @@ export interface Session {
 }
 
 // ---------- Call Types ----------
-// Admin-defined call types: LLTO, HLOC, REPATE, Scheduled, Discharge, Advice, etc.
-// Each workflow is fixed to a single call type, which controls which version
-// of service-template content and overrides apply.
+// Call types correspond to workflow types (High Acuity, Advice, Repate,
+// Scheduled, Discharge). Each call type may declare sub-versions (e.g.
+// LLTO/HLOC for High Acuity); service templates store content per
+// (callType, subVersion) pair. Use the literal 'default' as the sub-version
+// id when a call type has no sub-versions.
+export interface CallTypeSubVersion {
+  id: string;
+  name: string;
+}
 export interface CallType {
   id: string;
   name: string;
+  subVersions: CallTypeSubVersion[];
+}
+
+// ---------- Conditions ----------
+// A list of conditions that all must match. Empty/missing = always-on.
+export interface Condition {
+  qid: string;
+  equals: string;
 }
 
 // ---------- Workflow ----------
 export type QuestionType =
   | 'yesno'
-  | 'triage'     // legacy — behaves like yesno now
+  | 'triage'             // legacy — yes/no with no special behavior
   | 'dropdown'
   | 'text'
-  | 'facility'
+  | 'facility'           // sending facility (with optional allowFreeText)
+  | 'receiving_facility' // direct receiving fac pick (no referral patterns; with optional allowFreeText)
   | 'specialty_multi'
   | 'diagnosis_multi'
-  | 'referral_resolve';
+  | 'referral_resolve';  // receiving via referral patterns
 
 export interface WorkflowQuestion {
   id: string;
@@ -41,9 +56,11 @@ export interface WorkflowQuestion {
   options?: { label: string }[];
   condQid?: string;
   condVal?: string;
+  // For facility / receiving_facility: also allow a free-text entry (e.g. an address)
+  allowFreeText?: boolean;
 }
 
-// A question shown on the Post-Triage screen.
+// A question shown on the Post-Triage screen (questions mode).
 export interface PostTriageQuestion {
   id: string;
   type: 'yesno' | 'dropdown' | 'text';
@@ -51,17 +68,41 @@ export interface PostTriageQuestion {
   options?: string[];
 }
 
+export interface TransportReqItem {
+  id: string;
+  type: 'multiselect' | 'text';
+  label: string;
+  options?: Array<{ id: string; label: string }>;
+}
+
+export type PostTriageConfig =
+  | { mode: 'none' }
+  | {
+      mode: 'questions';
+      showServicePreQuestions: boolean;
+      questions: PostTriageQuestion[];
+    }
+  | {
+      mode: 'transport_requirements';
+      items: TransportReqItem[];
+    };
+
+// Picks the sub-version of the call type for a running case, based on the
+// answer to a workflow question. Optional — workflows whose call type has no
+// sub-versions don't need this.
+export interface SubVersionResolver {
+  questionId: string;
+  answerMap: Record<string, string>; // question answer → sub-version id
+}
+
 export interface Workflow {
   id: string;
   name: string;
-  callTypeId: string;            // FK → CallType.id
+  callTypeId: string;                // FK → CallType.id
+  subVersionResolver?: SubVersionResolver;
   questions: WorkflowQuestion[];
-  postTriage: {
-    enabled: boolean;
-    showServicePreQuestions: boolean;
-    questions: PostTriageQuestion[];
-  };
-  processSteps: ProcessStep[];   // flat list with optional per-step conditions
+  postTriage: PostTriageConfig;
+  processSteps: ProcessStep[];       // flat list; each step has optional multi-conditions
 }
 
 // ---------- Health Authorities ----------
@@ -106,8 +147,9 @@ export interface TemplateQuestion {
 export interface ExceptionStep {
   id: string;
   text: string;
-  condQid?: string;
+  condQid?: string;        // legacy single-condition (kept for back-compat)
   condVal?: string;
+  conditions?: Condition[]; // new multi-condition (AND-ed). If present, takes precedence.
 }
 
 export interface ServiceTemplate {
@@ -126,8 +168,9 @@ export interface TACard {
 export interface SpecialtyService {
   id: string;
   name: string;
-  // Template content keyed by call type ID.
-  templates: Record<string, ServiceTemplate>;
+  // Nested: templates[callTypeId][subVersionId] = ServiceTemplate.
+  // For call types with no sub-versions, the inner key is 'default'.
+  templates: Record<string, Record<string, ServiceTemplate>>;
   transportAdvisor: {
     enabled: boolean;
     cards: TACard[];
@@ -143,11 +186,13 @@ export interface CardOverridePart {
   sOrder: string[];
 }
 
+// Override is keyed by `${callTypeId}:${subVersionId}` so it tracks the same
+// dimensionality as service templates.
 export interface CardOverride {
   id: string;
   facilityId: string;
   svcId: string;
-  parts: Record<string, CardOverridePart>;   // keyed by call type ID
+  parts: Record<string, CardOverridePart>;
 }
 
 // ---------- Diagnoses ----------
@@ -162,10 +207,9 @@ export interface Diagnosis {
 export interface ProcessStep {
   id: string;
   text: string;
-  // Optional condition: only show this step when the post-triage answer for
-  // `condQid` equals `condVal`. Both must be set for the condition to apply.
-  condQid?: string;
+  condQid?: string;          // legacy single-condition
   condVal?: string;
+  conditions?: Condition[];  // multi-condition (AND-ed). If present, takes precedence over condQid.
 }
 
 // ---------- Reference cards ----------
@@ -202,7 +246,9 @@ export interface AcQueueItem {
 
 export interface TriageContext {
   facId: string | null;
+  facFreeText: string | null;
   svcIds: string[];
   destFacId: string | null;
+  destFreeText: string | null;
   diagnoses: string[];
 }

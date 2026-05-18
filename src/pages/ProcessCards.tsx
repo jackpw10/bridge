@@ -34,10 +34,13 @@ interface MergedCard {
 function mergeForCallType(
   svc: SpecialtyService,
   override: CardOverride | null,
-  callTypeId: string
+  callTypeId: string,
+  subVersionId: string
 ): MergedCard {
-  const tpl = svc.templates[callTypeId];
-  const part: CardOverridePart | null = override?.parts[callTypeId] ?? null;
+  const byCt = svc.templates[callTypeId] ?? {};
+  const tpl = byCt[subVersionId];
+  const partKey = `${callTypeId}:${subVersionId}`;
+  const part: CardOverridePart | null = override?.parts[partKey] ?? null;
   const baseQs = (tpl?.preQuestions ?? []).filter((q) => !part?.deactivated.includes(q.id));
   const allQs = [...baseQs, ...(part?.addedQuestions ?? [])];
   const qs = applyOrder(allQs, part?.qOrder ?? []);
@@ -61,10 +64,16 @@ export function ProcessCardsPage() {
   const [facId, setFacId] = useState('');
   const [svcIds, setSvcIds] = useState<string[]>([]);
   const [callTypeId, setCallTypeId] = useState<string>('');
+  const [subVersionId, setSubVersionId] = useState<string>('default');
 
   useEffect(() => {
     if (!callTypeId && callTypes.length > 0) setCallTypeId(callTypes[0].id);
   }, [callTypes, callTypeId]);
+
+  useEffect(() => {
+    const ct = callTypes.find((c) => c.id === callTypeId);
+    setSubVersionId(ct?.subVersions[0]?.id ?? 'default');
+  }, [callTypeId, callTypes]);
 
   const facility = facilities.find((f) => f.id === facId) ?? null;
   const services = useMemo(
@@ -140,6 +149,23 @@ export function ProcessCardsPage() {
             ))}
           </Select>
         </div>
+        {(activeCallType?.subVersions.length ?? 0) > 0 && (
+          <div className="mt-3">
+            <label className="text-xs font-medium text-slate-600 mb-1 block">Sub-version</label>
+            <div className="flex flex-wrap gap-2">
+              {activeCallType?.subVersions.map((sv) => (
+                <Button
+                  key={sv.id}
+                  size="sm"
+                  variant={subVersionId === sv.id ? 'primary' : 'secondary'}
+                  onClick={() => setSubVersionId(sv.id)}
+                >
+                  {sv.name}
+                </Button>
+              ))}
+            </div>
+          </div>
+        )}
       </Card>
 
       {!facId || svcIds.length === 0 ? (
@@ -187,8 +213,8 @@ export function ProcessCardsPage() {
               const ov = facility
                 ? overrides.find((o) => o.facilityId === facility.id && o.svcId === svc.id) ?? null
                 : null;
-              const merged = mergeForCallType(svc, ov, callTypeId);
-              const hasOverride = !!ov?.parts[callTypeId];
+              const merged = mergeForCallType(svc, ov, callTypeId, subVersionId);
+              const hasOverride = !!ov?.parts[`${callTypeId}:${subVersionId}`];
               return (
                 <Card
                   key={svc.id}
@@ -196,6 +222,9 @@ export function ProcessCardsPage() {
                     <span className="flex items-center gap-2">
                       <span>{svc.name}</span>
                       {activeCallType && <Badge tone="blue">{activeCallType.name}</Badge>}
+                      {activeCallType && activeCallType.subVersions.length > 0 && (
+                        <Badge tone="green">{activeCallType.subVersions.find((s) => s.id === subVersionId)?.name ?? subVersionId}</Badge>
+                      )}
                       {hasOverride && <Badge tone="amber">facility override</Badge>}
                     </span>
                   }

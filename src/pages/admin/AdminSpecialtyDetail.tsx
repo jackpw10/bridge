@@ -28,10 +28,19 @@ export function AdminSpecialtyDetailPage() {
 
   const svc = services.find((s) => s.id === id);
   const [tabCtId, setTabCtId] = useState<string>('');
+  const [tabSvId, setTabSvId] = useState<string>('default');
 
   useEffect(() => {
     if (!tabCtId && callTypes.length > 0) setTabCtId(callTypes[0].id);
   }, [callTypes, tabCtId]);
+
+  // Reset sub-version tab when call type tab changes — default to first sub-version
+  // (or 'default' for call types without sub-versions).
+  useEffect(() => {
+    const ct = callTypes.find((c) => c.id === tabCtId);
+    const fallback = ct && ct.subVersions.length > 0 ? ct.subVersions[0].id : 'default';
+    setTabSvId(fallback);
+  }, [tabCtId, callTypes]);
 
   if (!svc) {
     return (
@@ -43,57 +52,61 @@ export function AdminSpecialtyDetailPage() {
   }
   const svcRef: SpecialtyService = svc;
 
-  // Ensure the active tab's template exists in memory (without mutating storage).
-  const currentTpl: ServiceTemplate = svcRef.templates[tabCtId] ?? emptyTemplate();
+  // Active template lives at templates[callTypeId][subVersionId].
+  const activeCtTemplates = svcRef.templates[tabCtId] ?? {};
+  const currentTpl: ServiceTemplate = activeCtTemplates[tabSvId] ?? emptyTemplate();
 
   function patch(p: Partial<SpecialtyService>) {
     setServices(services.map((s) => (s.id === svcRef.id ? { ...s, ...p } : s)));
   }
 
-  function patchTemplate(ctId: string, p: Partial<ServiceTemplate>) {
-    const existing = svcRef.templates[ctId] ?? emptyTemplate();
-    patch({
-      templates: { ...svcRef.templates, [ctId]: { ...existing, ...p } },
-    });
+  function patchTemplate(ctId: string, svId: string, p: Partial<ServiceTemplate>) {
+    const byCt = svcRef.templates[ctId] ?? {};
+    const existing = byCt[svId] ?? emptyTemplate();
+    const nextByCt = { ...byCt, [svId]: { ...existing, ...p } };
+    patch({ templates: { ...svcRef.templates, [ctId]: nextByCt } });
   }
 
   function addQ() {
     const q: TemplateQuestion = { id: uid('tq'), type: 'yesno', text: 'New question' };
-    patchTemplate(tabCtId, { preQuestions: [...currentTpl.preQuestions, q] });
+    patchTemplate(tabCtId, tabSvId, { preQuestions: [...currentTpl.preQuestions, q] });
   }
   function updQ(qid: string, patchQ: Partial<TemplateQuestion>) {
-    patchTemplate(tabCtId, {
+    patchTemplate(tabCtId, tabSvId, {
       preQuestions: currentTpl.preQuestions.map((q) => (q.id === qid ? { ...q, ...patchQ } : q)),
     });
   }
   function removeQ(qid: string) {
-    patchTemplate(tabCtId, {
+    patchTemplate(tabCtId, tabSvId, {
       preQuestions: currentTpl.preQuestions.filter((q) => q.id !== qid),
     });
   }
   function reorderQs(next: TemplateQuestion[]) {
-    patchTemplate(tabCtId, { preQuestions: next });
+    patchTemplate(tabCtId, tabSvId, { preQuestions: next });
   }
 
   function addS() {
     const s: ExceptionStep = { id: uid('ts'), text: 'New step' };
-    patchTemplate(tabCtId, { exceptionSteps: [...currentTpl.exceptionSteps, s] });
+    patchTemplate(tabCtId, tabSvId, { exceptionSteps: [...currentTpl.exceptionSteps, s] });
   }
   function updS(sid: string, patchS: Partial<ExceptionStep>) {
-    patchTemplate(tabCtId, {
+    patchTemplate(tabCtId, tabSvId, {
       exceptionSteps: currentTpl.exceptionSteps.map((s) =>
         s.id === sid ? { ...s, ...patchS } : s
       ),
     });
   }
   function removeS(sid: string) {
-    patchTemplate(tabCtId, {
+    patchTemplate(tabCtId, tabSvId, {
       exceptionSteps: currentTpl.exceptionSteps.filter((s) => s.id !== sid),
     });
   }
   function reorderS(next: ExceptionStep[]) {
-    patchTemplate(tabCtId, { exceptionSteps: next });
+    patchTemplate(tabCtId, tabSvId, { exceptionSteps: next });
   }
+
+  const activeCallType = callTypes.find((c) => c.id === tabCtId);
+  const subTabs = activeCallType?.subVersions ?? [];
 
   // ---------- Transport Advisor ----------
   function patchTA(p: Partial<SpecialtyService['transportAdvisor']>) {
@@ -149,7 +162,7 @@ export function AdminSpecialtyDetailPage() {
           </div>
         ) : (
           <>
-            <div className="flex flex-wrap gap-2 border-b border-slate-200 mb-4">
+            <div className="flex flex-wrap gap-2 border-b border-slate-200 mb-2">
               {callTypes.map((ct) => (
                 <button
                   key={ct.id}
@@ -161,6 +174,20 @@ export function AdminSpecialtyDetailPage() {
                 </button>
               ))}
             </div>
+            {subTabs.length > 0 && (
+              <div className="flex flex-wrap gap-2 mb-4">
+                {subTabs.map((sv) => (
+                  <button
+                    key={sv.id}
+                    type="button"
+                    onClick={() => setTabSvId(sv.id)}
+                    className={`px-2.5 py-1 text-xs rounded ${tabSvId === sv.id ? 'bg-brand-600 text-white' : 'bg-slate-100 text-slate-700'}`}
+                  >
+                    {sv.name}
+                  </button>
+                ))}
+              </div>
+            )}
 
             <section className="space-y-6">
               <div>

@@ -46,7 +46,7 @@ export function AdminCallTypesPage() {
   }, [callTypes, workflows, services, facilities]);
 
   function add() {
-    setCallTypes([...callTypes, { id: uid('ct'), name: 'New call type' }]);
+    setCallTypes([...callTypes, { id: uid('ct'), name: 'New call type', subVersions: [] }]);
   }
   function rename(id: string, name: string) {
     setCallTypes(callTypes.map((c) => (c.id === id ? { ...c, name } : c)));
@@ -73,9 +73,9 @@ export function AdminCallTypesPage() {
           <Link to="/admin" className="text-xs text-brand-600 hover:underline">← Admin</Link>
           <h1 className="text-2xl font-bold text-slate-800">Call Types</h1>
           <p className="text-sm text-slate-500">
-            E.g. LLTO, HLOC, Advice, REPATE, Scheduled, Discharge. Each workflow is tied
-            to one call type, and service templates / TA cards / notification requirements
-            can target specific call types.
+            E.g. High Acuity, Advice, Repate, Scheduled, Discharge. Each workflow picks one.
+            A call type may declare sub-versions (e.g. High Acuity has LLTO and HLOC) which
+            service templates and overrides can store separately.
           </p>
         </div>
         <Button onClick={add}>+ Add</Button>
@@ -86,13 +86,45 @@ export function AdminCallTypesPage() {
           {callTypes.map((ct) => {
             const u = usage.get(ct.id);
             const total = (u?.workflows.length ?? 0) + (u?.serviceTemplates.length ?? 0) + (u?.taCards.length ?? 0) + (u?.notifReqs ?? 0);
+            function patchCt(p: Partial<CallType>) {
+              setCallTypes(callTypes.map((c) => (c.id === ct.id ? { ...c, ...p } : c)));
+            }
+            function addSv() {
+              patchCt({ subVersions: [...ct.subVersions, { id: uid('sv'), name: 'New sub-version' }] });
+            }
+            function updSv(svId: string, name: string) {
+              patchCt({
+                subVersions: ct.subVersions.map((s) => (s.id === svId ? { ...s, name } : s)),
+              });
+            }
+            function removeSv(svId: string) {
+              if (!window.confirm(`Remove sub-version? Service template content saved under this sub-version will become orphaned.`)) return;
+              patchCt({ subVersions: ct.subVersions.filter((s) => s.id !== svId) });
+            }
             return (
-              <div key={ct.id} className="py-3 grid grid-cols-[1fr_auto_auto] gap-3 items-center">
-                <Input value={ct.name} onChange={(e) => rename(ct.id, e.target.value)} />
-                <div className="text-xs text-slate-500">
-                  {total === 0 ? 'not in use' : `used by ${u?.workflows.length ?? 0} wf · ${u?.serviceTemplates.length ?? 0} svc · ${u?.taCards.length ?? 0} TA · ${u?.notifReqs ?? 0} notif`}
+              <div key={ct.id} className="py-3 space-y-2">
+                <div className="grid grid-cols-[1fr_auto_auto] gap-3 items-center">
+                  <Input value={ct.name} onChange={(e) => rename(ct.id, e.target.value)} />
+                  <div className="text-xs text-slate-500">
+                    {total === 0 ? 'not in use' : `${u?.workflows.length ?? 0} wf · ${u?.serviceTemplates.length ?? 0} svc · ${u?.taCards.length ?? 0} TA · ${u?.notifReqs ?? 0} notif`}
+                  </div>
+                  <Button size="sm" variant="ghost" onClick={() => remove(ct)}>Delete</Button>
                 </div>
-                <Button size="sm" variant="ghost" onClick={() => remove(ct)}>Delete</Button>
+                <div className="ml-4 pl-3 border-l-2 border-slate-200 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs text-slate-500">
+                      Sub-versions ({ct.subVersions.length}):{' '}
+                      {ct.subVersions.length === 0 ? <em>none</em> : ct.subVersions.map((s) => s.name).join(', ')}
+                    </span>
+                    <Button size="sm" variant="secondary" onClick={addSv}>+ Add sub-version</Button>
+                  </div>
+                  {ct.subVersions.map((sv) => (
+                    <div key={sv.id} className="flex gap-2 items-center">
+                      <Input value={sv.name} onChange={(e) => updSv(sv.id, e.target.value)} />
+                      <Button size="sm" variant="ghost" onClick={() => removeSv(sv.id)}>Remove</Button>
+                    </div>
+                  ))}
+                </div>
               </div>
             );
           })}

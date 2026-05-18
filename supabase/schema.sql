@@ -60,9 +60,11 @@ $$;
 
 -- ----------------------------- CONFIG ENTITIES -------------------------------
 create table if not exists public.call_types (
-  id   text primary key,
-  name text not null
+  id           text primary key,
+  name         text not null,
+  sub_versions jsonb not null default '[]'::jsonb
 );
+alter table public.call_types add column if not exists sub_versions jsonb not null default '[]'::jsonb;
 
 create table if not exists public.health_authorities (
   id   text primary key,
@@ -98,16 +100,18 @@ create table if not exists public.workflow (
 
 -- One row per workflow (High Acuity, Low Acuity, REPATE, ...).
 create table if not exists public.workflows (
-  id              text primary key,
-  name            text not null,
-  call_type_id    text not null default '',
-  questions       jsonb not null default '[]'::jsonb,
-  post_triage     jsonb not null default '{"enabled":false,"showServicePreQuestions":false,"questions":[]}'::jsonb,
-  process_steps   jsonb not null default '[]'::jsonb,
-  position        integer not null default 0,
-  created_at      timestamptz not null default now()
+  id                    text primary key,
+  name                  text not null,
+  call_type_id          text not null default '',
+  sub_version_resolver  jsonb,
+  questions             jsonb not null default '[]'::jsonb,
+  post_triage           jsonb not null default '{"mode":"none"}'::jsonb,
+  process_steps         jsonb not null default '[]'::jsonb,
+  position              integer not null default 0,
+  created_at            timestamptz not null default now()
 );
 alter table public.workflows add column if not exists call_type_id text not null default '';
+alter table public.workflows add column if not exists sub_version_resolver jsonb;
 
 create table if not exists public.diagnoses (
   id            text primary key,

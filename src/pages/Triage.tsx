@@ -57,9 +57,15 @@ export function TriagePage() {
   // Decide whether the post-triage screen is needed for this workflow.
   const postTriageNeeded = useMemo(() => {
     const cfg = t.activeWorkflow?.postTriage;
-    if (!cfg || !cfg.enabled) return false;
-    if (cfg.questions.length > 0) return true;
-    if (cfg.showServicePreQuestions && t.acQueue.length > 0) return true;
+    if (!cfg || cfg.mode === 'none') return false;
+    if (cfg.mode === 'questions') {
+      if (cfg.questions.length > 0) return true;
+      if (cfg.showServicePreQuestions && t.acQueue.length > 0) return true;
+      return false;
+    }
+    if (cfg.mode === 'transport_requirements') {
+      return cfg.items.length > 0;
+    }
     return false;
   }, [t.activeWorkflow, t.acQueue.length]);
 

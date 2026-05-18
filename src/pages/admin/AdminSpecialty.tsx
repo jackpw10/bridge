@@ -55,9 +55,15 @@ export function AdminSpecialtyPage() {
   function summarizeTemplates(svc: SpecialtyService): string {
     const parts: string[] = [];
     for (const ct of callTypes) {
-      const tpl = svc.templates[ct.id];
-      if (tpl && (tpl.preQuestions.length || tpl.exceptionSteps.length)) {
-        parts.push(`${ct.name}: ${tpl.preQuestions.length}q / ${tpl.exceptionSteps.length}s`);
+      const byCt = svc.templates[ct.id] ?? {};
+      let qCount = 0;
+      let sCount = 0;
+      for (const tpl of Object.values(byCt)) {
+        qCount += tpl.preQuestions.length;
+        sCount += tpl.exceptionSteps.length;
+      }
+      if (qCount > 0 || sCount > 0) {
+        parts.push(`${ct.name}: ${qCount}q / ${sCount}s`);
       }
     }
     return parts.join(' · ') || 'no templates configured';

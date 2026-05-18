@@ -14,8 +14,22 @@ import type {
 } from '../types';
 
 // ---------- Call types ----------
-export function callTypeFromRow(r: { id: string; name: string }): CallType {
-  return { id: r.id, name: r.name };
+export interface CallTypeRow {
+  id: string;
+  name: string;
+  sub_versions: unknown;
+}
+
+export function callTypeFromRow(r: CallTypeRow): CallType {
+  return {
+    id: r.id,
+    name: r.name,
+    subVersions: (r.sub_versions as CallType['subVersions']) ?? [],
+  };
+}
+
+export function callTypeToRow(c: CallType): CallTypeRow {
+  return { id: c.id, name: c.name, sub_versions: c.subVersions };
 }
 
 // ---------- Facilities ----------
@@ -117,6 +131,7 @@ export interface WorkflowRow {
   id: string;
   name: string;
   call_type_id: string;
+  sub_version_resolver: unknown;
   questions: unknown;
   post_triage: unknown;
   process_steps: unknown;
@@ -124,18 +139,18 @@ export interface WorkflowRow {
 }
 
 export function workflowFromRow(r: WorkflowRow): Workflow {
-  return {
+  const pt = (r.post_triage as Workflow['postTriage'] | null) ?? { mode: 'none' };
+  const wf: Workflow = {
     id: r.id,
     name: r.name,
     callTypeId: r.call_type_id ?? '',
     questions: (r.questions as Workflow['questions']) ?? [],
-    postTriage: (r.post_triage as Workflow['postTriage']) ?? {
-      enabled: false,
-      showServicePreQuestions: false,
-      questions: [],
-    },
+    postTriage: pt,
     processSteps: (r.process_steps as Workflow['processSteps']) ?? [],
   };
+  const resolver = r.sub_version_resolver as Workflow['subVersionResolver'] | null;
+  if (resolver) wf.subVersionResolver = resolver;
+  return wf;
 }
 
 export function workflowToRow(w: Workflow, position: number): WorkflowRow {
@@ -143,6 +158,7 @@ export function workflowToRow(w: Workflow, position: number): WorkflowRow {
     id: w.id,
     name: w.name,
     call_type_id: w.callTypeId,
+    sub_version_resolver: w.subVersionResolver ?? null,
     questions: w.questions,
     post_triage: w.postTriage,
     process_steps: w.processSteps,

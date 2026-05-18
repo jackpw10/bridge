@@ -66,19 +66,35 @@ export function QuestionRenderer({ question, answers, setAnswer }: Props) {
     );
   }
 
-  if (question.type === 'facility') {
+  if (question.type === 'facility' || question.type === 'receiving_facility') {
     const opts = facilities.map((f) => ({ value: f.id, label: f.name, meta: haName(f.healthAuthorityId) }));
     const facId = answers[`${question.id}__facid`] ?? '';
+    const freeText = answers[`${question.id}__freetext`] ?? '';
     return (
-      <Combobox
-        options={opts}
-        value={facId}
-        onChange={(v) => {
-          const lbl = facilities.find((f) => f.id === v)?.name ?? '';
-          setAnswer(question.id, lbl, { facid: v });
-        }}
-        placeholder="Search facilities…"
-      />
+      <div className="space-y-2">
+        <Combobox
+          options={opts}
+          value={facId}
+          allowEmpty
+          onChange={(v) => {
+            const lbl = facilities.find((f) => f.id === v)?.name ?? '';
+            setAnswer(question.id, lbl || freeText, { facid: v, freetext: v ? '' : freeText });
+          }}
+          placeholder="Search facilities…"
+        />
+        {question.allowFreeText && (
+          <Input
+            placeholder="Or type an address / facility name…"
+            value={freeText}
+            onChange={(e) =>
+              setAnswer(question.id, e.target.value || facilities.find((f) => f.id === facId)?.name || '', {
+                facid: e.target.value ? '' : facId,
+                freetext: e.target.value,
+              })
+            }
+          />
+        )}
+      </div>
     );
   }
 

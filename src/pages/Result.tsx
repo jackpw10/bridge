@@ -110,12 +110,19 @@ export function ResultPage() {
     }
 
     // ---- Post-triage answers ----
-    const ptQs = t.activeWorkflow?.postTriage.questions ?? [];
-    if (ptQs.length > 0) {
+    const pt = t.activeWorkflow?.postTriage;
+    if (pt?.mode === 'questions' && pt.questions.length > 0) {
       lines.push('');
       lines.push('Post-triage answers:');
-      for (const q of ptQs) {
+      for (const q of pt.questions) {
         lines.push(`  • ${q.text}: ${t.postTriageAnswers[q.id] || '—'}`);
+      }
+    } else if (pt?.mode === 'transport_requirements' && pt.items.length > 0) {
+      lines.push('');
+      lines.push('Transport requirements:');
+      for (const item of pt.items) {
+        const v = t.postTriageAnswers[item.id] ?? '';
+        lines.push(`  • ${item.label}: ${v || '—'}`);
       }
     }
 
@@ -126,7 +133,7 @@ export function ResultPage() {
       if (!svc) continue;
       lines.push('');
       lines.push(`— ${svc.name}${t.callTypeName ? ` (${t.callTypeName})` : ''} → ${dest?.name ?? '—'} —`);
-      const qs = t.getActiveCardQs(item.svcId, t.callTypeId, item.destFacId);
+      const qs = t.getActiveCardQs(item.svcId, t.callTypeId, t.subVersionId, item.destFacId);
       const preAnswers: Record<string, string> = {};
       for (const q of qs) {
         const key = `${item.svcId}:${q.id}`;
@@ -134,7 +141,7 @@ export function ResultPage() {
         preAnswers[q.id] = a;
         lines.push(`  • ${q.text}: ${a || '—'}`);
       }
-      const steps = t.getActiveCardSteps(item.svcId, t.callTypeId, item.destFacId, preAnswers);
+      const steps = t.getActiveCardSteps(item.svcId, t.callTypeId, t.subVersionId, item.destFacId, preAnswers);
       for (const s of steps) {
         lines.push(`  → ${s.text}`);
       }
@@ -234,7 +241,7 @@ export function ResultPage() {
                 const svc = specialty.find((s) => s.id === item.svcId);
                 const dest = facilities.find((f) => f.id === item.destFacId);
                 if (!svc) return null;
-                const qs = t.getActiveCardQs(item.svcId, t.callTypeId, item.destFacId);
+                const qs = t.getActiveCardQs(item.svcId, t.callTypeId, t.subVersionId, item.destFacId);
                 const preAnswers: Record<string, string> = {};
                 for (const q of qs) {
                   preAnswers[q.id] = t.acStates[`${item.svcId}:${q.id}`] ?? '';
@@ -242,6 +249,7 @@ export function ResultPage() {
                 const steps = t.getActiveCardSteps(
                   item.svcId,
                   t.callTypeId,
+                  t.subVersionId,
                   item.destFacId,
                   preAnswers
                 );

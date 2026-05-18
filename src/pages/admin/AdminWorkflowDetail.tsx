@@ -9,9 +9,13 @@ import { Badge } from '../../components/ui/Badge';
 import { Modal } from '../../components/ui/Modal';
 import { DragList } from '../../components/ui/DragList';
 import type {
+  CallType,
+  Condition,
+  PostTriageConfig,
   PostTriageQuestion,
   ProcessStep,
   QuestionType,
+  TransportReqItem,
   Workflow,
   WorkflowQuestion,
 } from '../../types';
@@ -22,9 +26,10 @@ const TYPES: { value: QuestionType; label: string }[] = [
   { value: 'dropdown', label: 'Dropdown' },
   { value: 'text', label: 'Free text' },
   { value: 'facility', label: 'Sending facility' },
+  { value: 'receiving_facility', label: 'Receiving facility (direct)' },
   { value: 'specialty_multi', label: 'Specialty services (multi)' },
   { value: 'diagnosis_multi', label: 'Diagnoses (multi)' },
-  { value: 'referral_resolve', label: 'Referral resolve' },
+  { value: 'referral_resolve', label: 'Referral resolve (uses patterns)' },
 ];
 
 export function AdminWorkflowDetailPage() {
@@ -47,13 +52,10 @@ export function AdminWorkflowDetailPage() {
     );
   }
   const wfRef: Workflow = wf;
+  const activeCallType: CallType | undefined = callTypes.find((c) => c.id === wfRef.callTypeId);
 
   function patch(p: Partial<Workflow>) {
     setWorkflows(workflows.map((w) => (w.id === wfRef.id ? { ...w, ...p } : w)));
-  }
-
-  function patchPostTriage(p: Partial<Workflow['postTriage']>) {
-    patch({ postTriage: { ...wfRef.postTriage, ...p } });
   }
 
   function deleteWorkflow() {
@@ -62,6 +64,7 @@ export function AdminWorkflowDetailPage() {
     nav('/admin/workflow');
   }
 
+  // ---- workflow questions ----
   function saveQ(q: WorkflowQuestion) {
     const exists = wfRef.questions.some((x) => x.id === q.id);
     const next = exists
@@ -77,24 +80,7 @@ export function AdminWorkflowDetailPage() {
     patch({ questions: next });
   }
 
-  function addPostQ() {
-    const q: PostTriageQuestion = { id: uid('ptq'), type: 'yesno', text: 'New question' };
-    patchPostTriage({ questions: [...wfRef.postTriage.questions, q] });
-  }
-  function updatePostQ(qid: string, p: Partial<PostTriageQuestion>) {
-    patchPostTriage({
-      questions: wfRef.postTriage.questions.map((q) => (q.id === qid ? { ...q, ...p } : q)),
-    });
-  }
-  function removePostQ(qid: string) {
-    patchPostTriage({
-      questions: wfRef.postTriage.questions.filter((q) => q.id !== qid),
-    });
-  }
-  function reorderPostQs(next: PostTriageQuestion[]) {
-    patchPostTriage({ questions: next });
-  }
-
+  // ---- process steps ----
   function addStep() {
     const step: ProcessStep = { id: uid('ps'), text: 'New step' };
     patch({ processSteps: [...wfRef.processSteps, step] });
@@ -111,7 +97,41 @@ export function AdminWorkflowDetailPage() {
     patch({ processSteps: next });
   }
 
+  // ---- post-triage helpers ----
+  function setPostTriageMode(mode: PostTriageConfig['mode']) {
+    if (mode === 'none') {
+      patch({ postTriage: { mode: 'none' } });
+    } else if (mode === 'questions') {
+      patch({
+        postTriage: {
+          mode: 'questions',
+          showServicePreQuestions: true,
+          questions:
+            wfRef.postTriage.mode === 'questions' ? wfRef.postTriage.questions : [],
+        },
+      });
+    } else {
+      patch({
+        postTriage: {
+          mode: 'transport_requirements',
+          items:
+            wfRef.postTriage.mode === 'transport_requirements'
+              ? wfRef.postTriage.items
+              : [],
+        },
+      });
+    }
+  }
+
   const newQ = (): WorkflowQuestion => ({ id: uid('q'), type: 'yesno', text: 'New question' });
+
+  // ---- conditions list available for step / question gating ----
+  // Conditions can reference workflow Qs and (for steps) post-triage Qs.
+  const workflowCondRefs = wfRef.questions.map((q) => ({ id: q.id, label: q.text }));
+  const postTriageCondRefs = wfRef.postTriage.mode === 'questions'
+    ? wfRef.postTriage.questions.map((q) => ({ id: q.id, label: `(post) ${q.text}` }))
+    : [];
+  const allCondRefs = [...workflowCondRefs, ...postTriageCondRefs];
 
   return (
     <div className="space-y-4">
@@ -137,12 +157,20 @@ export function AdminWorkflowDetailPage() {
             ))}
           </Select>
         </div>
-        {!wf.callTypeId && (
-          <div className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded p-2 mt-2">
-            Pick a call type — it controls which version of service-template content this workflow uses.
-          </div>
-        )}
       </Card>
+
+      {activeCallType && activeCallType.subVersions.length > 0 && (
+        <Card
+          title="Sub-version resolver"
+          description={`${activeCallType.name} has sub-versions (${activeCallType.subVersions.map((s) => s.name).join(', ')}). Pick which workflow question's answer determines the sub-version for each case.`}
+        >
+          <SubVersionResolverEditor
+            workflow={wfRef}
+            callType={activeCallType}
+            onChange={(r) => patch({ subVersionResolver: r })}
+          />
+        </Card>
+      )}
 
       <Card
         title="Workflow questions"
@@ -157,8 +185,9 @@ export function AdminWorkflowDetailPage() {
               {handle}
               <div className="flex-1">
                 <div className="text-sm font-medium text-slate-800">{q.text}</div>
-                <div className="flex gap-2 mt-1 items-center">
+                <div className="flex gap-2 mt-1 items-center flex-wrap">
                   <Badge tone="blue">{TYPES.find((t) => t.value === q.type)?.label ?? q.type}</Badge>
+                  {q.allowFreeText && <Badge tone="amber">free text allowed</Badge>}
                   {q.condQid && (
                     <Badge tone="amber">
                       shows when {q.condQid} = "{q.condVal}"
@@ -173,74 +202,37 @@ export function AdminWorkflowDetailPage() {
         />
       </Card>
 
-      <Card
-        title="Post Triage Cards"
-        description="Screen shown after the triage questions. Toggle off if this workflow doesn't need it."
-      >
+      <Card title="Post-triage screen">
         <div className="space-y-3">
-          <Toggle
-            checked={wf.postTriage.enabled}
-            onChange={(v) => patchPostTriage({ enabled: v })}
-            label="Show post-triage screen for this workflow"
-          />
-          {wf.postTriage.enabled && (
-            <>
-              <Toggle
-                checked={wf.postTriage.showServicePreQuestions}
-                onChange={(v) => patchPostTriage({ showServicePreQuestions: v })}
-                label="Also show per-service pre-questions (configured on each specialty service)"
-              />
+          <Select
+            label="Mode"
+            value={wf.postTriage.mode}
+            onChange={(e) => setPostTriageMode(e.target.value as PostTriageConfig['mode'])}
+          >
+            <option value="none">None (skip the post-triage screen entirely)</option>
+            <option value="questions">Questions (yes/no, dropdown, text + optional per-service pre-questions)</option>
+            <option value="transport_requirements">Transport requirements (multi-select groups + free text)</option>
+          </Select>
 
-              <div>
-                <div className="flex items-center justify-between mb-2">
-                  <h4 className="font-semibold text-slate-700 text-sm">Post-triage questions</h4>
-                  <Button size="sm" variant="secondary" onClick={addPostQ}>+ Add</Button>
-                </div>
-                <DragList
-                  items={wf.postTriage.questions}
-                  onReorder={reorderPostQs}
-                  renderItem={(q, handle) => (
-                    <div className="border rounded-md p-3 bg-white">
-                      <div className="flex items-start gap-2">
-                        {handle}
-                        <div className="flex-1 space-y-2">
-                          <Input value={q.text} onChange={(e) => updatePostQ(q.id, { text: e.target.value })} />
-                          <div className="grid grid-cols-2 gap-2">
-                            <Select value={q.type} onChange={(e) => updatePostQ(q.id, { type: e.target.value as PostTriageQuestion['type'] })}>
-                              <option value="yesno">Yes / No</option>
-                              <option value="dropdown">Dropdown</option>
-                              <option value="text">Free text</option>
-                            </Select>
-                            {q.type === 'dropdown' && (
-                              <Input
-                                placeholder="opt1|opt2"
-                                value={(q.options ?? []).join('|')}
-                                onChange={(e) =>
-                                  updatePostQ(q.id, {
-                                    options: e.target.value.split('|').map((s) => s.trim()).filter(Boolean),
-                                  })
-                                }
-                              />
-                            )}
-                          </div>
-                        </div>
-                        <Button size="sm" variant="ghost" onClick={() => removePostQ(q.id)}>Delete</Button>
-                      </div>
-                    </div>
-                  )}
-                />
-                {wf.postTriage.questions.length === 0 && (
-                  <div className="text-xs text-slate-400">No questions yet — the post-triage screen will only show service pre-questions (if enabled).</div>
-                )}
-              </div>
-            </>
+          {wf.postTriage.mode === 'questions' && (
+            <PostTriageQuestionsEditor
+              cfg={wf.postTriage}
+              onChange={(next) => patch({ postTriage: next })}
+            />
+          )}
+
+          {wf.postTriage.mode === 'transport_requirements' && (
+            <TransportReqEditor
+              cfg={wf.postTriage}
+              onChange={(next) => patch({ postTriage: next })}
+            />
           )}
         </div>
       </Card>
 
       <Card
         title="Generic process steps"
-        description="Shown on the result page. Each step can optionally be conditional on a post-triage answer."
+        description="Shown on the result page. Each step can require any combination of workflow / post-triage answers (all must match)."
         actions={<Button size="sm" onClick={addStep}>+ Add step</Button>}
       >
         <DragList
@@ -252,22 +244,17 @@ export function AdminWorkflowDetailPage() {
                 {handle}
                 <div className="flex-1 space-y-2">
                   <Textarea value={s.text} onChange={(e) => updateStep(s.id, { text: e.target.value })} />
-                  <div className="grid grid-cols-2 gap-2">
-                    <Select
-                      value={s.condQid ?? ''}
-                      onChange={(e) => updateStep(s.id, { condQid: e.target.value || undefined })}
-                    >
-                      <option value="">— always show —</option>
-                      {wfRef.postTriage.questions.map((q) => (
-                        <option key={q.id} value={q.id}>{q.text}</option>
-                      ))}
-                    </Select>
-                    <Input
-                      placeholder="show when answer = …"
-                      value={s.condVal ?? ''}
-                      onChange={(e) => updateStep(s.id, { condVal: e.target.value || undefined })}
-                    />
-                  </div>
+                  <ConditionEditor
+                    value={resolveConds(s)}
+                    onChange={(conds) =>
+                      updateStep(s.id, {
+                        conditions: conds,
+                        condQid: undefined,
+                        condVal: undefined,
+                      })
+                    }
+                    references={allCondRefs}
+                  />
                 </div>
                 <Button size="sm" variant="ghost" onClick={() => removeStep(s.id)}>Delete</Button>
               </div>
@@ -291,6 +278,299 @@ export function AdminWorkflowDetailPage() {
   );
 }
 
+function resolveConds(s: { condQid?: string; condVal?: string; conditions?: Condition[] }): Condition[] {
+  if (s.conditions && s.conditions.length > 0) return s.conditions;
+  if (s.condQid && s.condVal !== undefined) return [{ qid: s.condQid, equals: s.condVal }];
+  return [];
+}
+
+function ConditionEditor({
+  value,
+  onChange,
+  references,
+}: {
+  value: Condition[];
+  onChange: (next: Condition[]) => void;
+  references: Array<{ id: string; label: string }>;
+}) {
+  function add() {
+    onChange([...value, { qid: '', equals: '' }]);
+  }
+  function update(i: number, patch: Partial<Condition>) {
+    onChange(value.map((c, idx) => (idx === i ? { ...c, ...patch } : c)));
+  }
+  function remove(i: number) {
+    onChange(value.filter((_, idx) => idx !== i));
+  }
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center justify-between">
+        <span className="text-xs font-medium text-slate-600">Show only when…</span>
+        <Button size="sm" variant="secondary" onClick={add}>+ Add condition</Button>
+      </div>
+      {value.length === 0 ? (
+        <div className="text-xs text-slate-400">— always shown —</div>
+      ) : (
+        value.map((c, i) => (
+          <div key={i} className="grid grid-cols-[1fr_1fr_auto] gap-2 items-center">
+            <Select value={c.qid} onChange={(e) => update(i, { qid: e.target.value })}>
+              <option value="">— question —</option>
+              {references.map((r) => (
+                <option key={r.id} value={r.id}>{r.label}</option>
+              ))}
+            </Select>
+            <Input
+              placeholder="equals"
+              value={c.equals}
+              onChange={(e) => update(i, { equals: e.target.value })}
+            />
+            <Button size="sm" variant="ghost" onClick={() => remove(i)}>×</Button>
+          </div>
+        ))
+      )}
+    </div>
+  );
+}
+
+function SubVersionResolverEditor({
+  workflow,
+  callType,
+  onChange,
+}: {
+  workflow: Workflow;
+  callType: CallType;
+  onChange: (r: Workflow['subVersionResolver']) => void;
+}) {
+  const r = workflow.subVersionResolver;
+  const eligibleQs = workflow.questions.filter(
+    (q) => q.type === 'yesno' || q.type === 'dropdown' || q.type === 'triage'
+  );
+  const possibleAnswers = (() => {
+    const qid = r?.questionId;
+    if (!qid) return [];
+    const q = eligibleQs.find((x) => x.id === qid);
+    if (!q) return [];
+    if (q.type === 'yesno' || q.type === 'triage') return ['Yes', 'No'];
+    return (q.options ?? []).map((o) => o.label);
+  })();
+
+  return (
+    <div className="space-y-3">
+      <Select
+        label="Question whose answer picks the sub-version"
+        value={r?.questionId ?? ''}
+        onChange={(e) => {
+          const qid = e.target.value;
+          if (!qid) {
+            onChange(undefined);
+            return;
+          }
+          onChange({ questionId: qid, answerMap: r?.answerMap ?? {} });
+        }}
+      >
+        <option value="">— none (always use first sub-version) —</option>
+        {eligibleQs.map((q) => (
+          <option key={q.id} value={q.id}>{q.text}</option>
+        ))}
+      </Select>
+
+      {r && possibleAnswers.length > 0 && (
+        <div className="space-y-2">
+          <div className="text-xs font-medium text-slate-600">Map each answer to a sub-version</div>
+          {possibleAnswers.map((ans) => (
+            <div key={ans} className="grid grid-cols-[1fr_2fr] gap-2 items-center">
+              <span className="text-sm text-slate-600">When answer = "{ans}"</span>
+              <Select
+                value={r.answerMap[ans] ?? ''}
+                onChange={(e) =>
+                  onChange({
+                    questionId: r.questionId,
+                    answerMap: { ...r.answerMap, [ans]: e.target.value },
+                  })
+                }
+              >
+                <option value="">— use first sub-version —</option>
+                {callType.subVersions.map((sv) => (
+                  <option key={sv.id} value={sv.id}>{sv.name}</option>
+                ))}
+              </Select>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function PostTriageQuestionsEditor({
+  cfg,
+  onChange,
+}: {
+  cfg: Extract<PostTriageConfig, { mode: 'questions' }>;
+  onChange: (next: PostTriageConfig) => void;
+}) {
+  function patch(p: Partial<Extract<PostTriageConfig, { mode: 'questions' }>>) {
+    onChange({ ...cfg, ...p });
+  }
+  function addQ() {
+    const q: PostTriageQuestion = { id: uid('ptq'), type: 'yesno', text: 'New question' };
+    patch({ questions: [...cfg.questions, q] });
+  }
+  function updQ(qid: string, p: Partial<PostTriageQuestion>) {
+    patch({
+      questions: cfg.questions.map((q) => (q.id === qid ? { ...q, ...p } : q)),
+    });
+  }
+  function removeQ(qid: string) {
+    patch({ questions: cfg.questions.filter((q) => q.id !== qid) });
+  }
+  function reorder(next: PostTriageQuestion[]) {
+    patch({ questions: next });
+  }
+
+  return (
+    <>
+      <Toggle
+        checked={cfg.showServicePreQuestions}
+        onChange={(v) => patch({ showServicePreQuestions: v })}
+        label="Also show per-service pre-questions (configured on each specialty service)"
+      />
+      <div>
+        <div className="flex items-center justify-between mb-2">
+          <span className="text-sm font-semibold text-slate-700">Post-triage questions</span>
+          <Button size="sm" variant="secondary" onClick={addQ}>+ Add</Button>
+        </div>
+        <DragList
+          items={cfg.questions}
+          onReorder={reorder}
+          renderItem={(q, handle) => (
+            <div className="border rounded-md p-3 bg-white">
+              <div className="flex items-start gap-2">
+                {handle}
+                <div className="flex-1 space-y-2">
+                  <Input value={q.text} onChange={(e) => updQ(q.id, { text: e.target.value })} />
+                  <div className="grid grid-cols-2 gap-2">
+                    <Select value={q.type} onChange={(e) => updQ(q.id, { type: e.target.value as PostTriageQuestion['type'] })}>
+                      <option value="yesno">Yes / No</option>
+                      <option value="dropdown">Dropdown</option>
+                      <option value="text">Free text</option>
+                    </Select>
+                    {q.type === 'dropdown' && (
+                      <Input
+                        placeholder="opt1|opt2"
+                        value={(q.options ?? []).join('|')}
+                        onChange={(e) =>
+                          updQ(q.id, {
+                            options: e.target.value.split('|').map((s) => s.trim()).filter(Boolean),
+                          })
+                        }
+                      />
+                    )}
+                  </div>
+                </div>
+                <Button size="sm" variant="ghost" onClick={() => removeQ(q.id)}>Delete</Button>
+              </div>
+            </div>
+          )}
+        />
+      </div>
+    </>
+  );
+}
+
+function TransportReqEditor({
+  cfg,
+  onChange,
+}: {
+  cfg: Extract<PostTriageConfig, { mode: 'transport_requirements' }>;
+  onChange: (next: PostTriageConfig) => void;
+}) {
+  function patch(items: TransportReqItem[]) {
+    onChange({ ...cfg, items });
+  }
+  function addMulti() {
+    patch([
+      ...cfg.items,
+      { id: uid('tri'), type: 'multiselect', label: 'New group', options: [] },
+    ]);
+  }
+  function addText() {
+    patch([...cfg.items, { id: uid('tri'), type: 'text', label: 'New text field' }]);
+  }
+  function updItem(itemId: string, p: Partial<TransportReqItem>) {
+    patch(cfg.items.map((i) => (i.id === itemId ? ({ ...i, ...p } as TransportReqItem) : i)));
+  }
+  function removeItem(itemId: string) {
+    patch(cfg.items.filter((i) => i.id !== itemId));
+  }
+
+  return (
+    <>
+      <div className="flex gap-2">
+        <Button size="sm" variant="secondary" onClick={addMulti}>+ Add multi-select group</Button>
+        <Button size="sm" variant="secondary" onClick={addText}>+ Add text field</Button>
+      </div>
+      <DragList
+        items={cfg.items}
+        onReorder={(next) => patch(next)}
+        renderItem={(item, handle) => (
+          <div className="border rounded-md p-3 bg-white space-y-2">
+            <div className="flex items-start gap-2">
+              {handle}
+              <Badge tone="slate">{item.type}</Badge>
+              <Input
+                value={item.label}
+                onChange={(e) => updItem(item.id, { label: e.target.value })}
+                className="flex-1"
+              />
+              <Button size="sm" variant="ghost" onClick={() => removeItem(item.id)}>Delete</Button>
+            </div>
+            {item.type === 'multiselect' && (
+              <MultiSelectOptionsEditor
+                options={item.options ?? []}
+                onChange={(opts) => updItem(item.id, { options: opts })}
+              />
+            )}
+          </div>
+        )}
+      />
+    </>
+  );
+}
+
+function MultiSelectOptionsEditor({
+  options,
+  onChange,
+}: {
+  options: Array<{ id: string; label: string }>;
+  onChange: (next: Array<{ id: string; label: string }>) => void;
+}) {
+  function add() {
+    onChange([...options, { id: uid('opt'), label: 'New option' }]);
+  }
+  function upd(oid: string, label: string) {
+    onChange(options.map((o) => (o.id === oid ? { ...o, label } : o)));
+  }
+  function remove(oid: string) {
+    onChange(options.filter((o) => o.id !== oid));
+  }
+  return (
+    <div className="ml-6 pl-3 border-l-2 border-slate-200 space-y-2">
+      <div className="flex items-center justify-between">
+        <span className="text-xs text-slate-500">Options</span>
+        <Button size="sm" variant="secondary" onClick={add}>+ Add</Button>
+      </div>
+      {options.map((o) => (
+        <div key={o.id} className="flex gap-2 items-center">
+          <Input value={o.label} onChange={(e) => upd(o.id, e.target.value)} />
+          <Button size="sm" variant="ghost" onClick={() => remove(o.id)}>×</Button>
+        </div>
+      ))}
+      {options.length === 0 && <div className="text-xs text-slate-400">No options yet.</div>}
+    </div>
+  );
+}
+
 function QuestionEditor({
   initial,
   all,
@@ -307,6 +587,8 @@ function QuestionEditor({
   function update<K extends keyof WorkflowQuestion>(k: K, v: WorkflowQuestion[K]) {
     setQ((cur) => ({ ...cur, [k]: v }));
   }
+
+  const allowsFreeText = q.type === 'facility' || q.type === 'receiving_facility';
 
   return (
     <Modal open onClose={onCancel} title="Question" size="lg" footer={
@@ -336,6 +618,13 @@ function QuestionEditor({
                   .map((label) => ({ label }))
               )
             }
+          />
+        )}
+        {allowsFreeText && (
+          <Toggle
+            checked={!!q.allowFreeText}
+            onChange={(v) => update('allowFreeText', v)}
+            label="Allow free-text entry (in addition to facility picker)"
           />
         )}
         <div className="grid grid-cols-2 gap-3">

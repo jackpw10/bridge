@@ -4,6 +4,7 @@ import type {
   CardOverride,
   CardOverridePart,
   ExceptionStep,
+  ServiceTemplate,
   SpecialtyService,
   TemplateQuestion,
 } from '../../types';
@@ -34,6 +35,10 @@ function emptyPart(): CardOverridePart {
   };
 }
 
+function emptyTpl(): ServiceTemplate {
+  return { preQuestions: [], exceptionSteps: [] };
+}
+
 export function CardOverrideModal({
   facilityId,
   facilityName,
@@ -45,6 +50,7 @@ export function CardOverrideModal({
   const callTypes = useAppStore((s) => s.callTypes);
 
   const [tabCtId, setTabCtId] = useState<string>('');
+  const [tabSvId, setTabSvId] = useState<string>('default');
   const [draft, setDraft] = useState<CardOverride>(
     override ?? {
       id: uid('ov'),
@@ -58,15 +64,23 @@ export function CardOverrideModal({
     if (!tabCtId && callTypes.length > 0) setTabCtId(callTypes[0].id);
   }, [callTypes, tabCtId]);
 
-  const part: CardOverridePart = draft.parts[tabCtId] ?? emptyPart();
-  const tpl = service.templates[tabCtId] ?? { preQuestions: [], exceptionSteps: [] };
+  useEffect(() => {
+    const ct = callTypes.find((c) => c.id === tabCtId);
+    setTabSvId(ct && ct.subVersions.length > 0 ? ct.subVersions[0].id : 'default');
+  }, [tabCtId, callTypes]);
+
+  const activeCallType = callTypes.find((c) => c.id === tabCtId);
+  const partKey = `${tabCtId}:${tabSvId}`;
+  const part: CardOverridePart = draft.parts[partKey] ?? emptyPart();
+  const tpl: ServiceTemplate =
+    service.templates[tabCtId]?.[tabSvId] ?? emptyTpl();
   const templateQs = tpl.preQuestions;
   const templateSteps = tpl.exceptionSteps;
 
   function patchPart(p: Partial<CardOverridePart>) {
     setDraft((d) => ({
       ...d,
-      parts: { ...d.parts, [tabCtId]: { ...part, ...p } },
+      parts: { ...d.parts, [partKey]: { ...part, ...p } },
     }));
   }
 
@@ -150,6 +164,8 @@ export function CardOverrideModal({
     patchPart({ sOrder: next.map((n) => n.id) });
   }
 
+  const subTabs = activeCallType?.subVersions ?? [];
+
   return (
     <Modal
       open
@@ -169,7 +185,7 @@ export function CardOverrideModal({
         </div>
       ) : (
         <>
-          <div className="flex flex-wrap gap-2 border-b border-slate-200 mb-4">
+          <div className="flex flex-wrap gap-2 border-b border-slate-200 mb-2">
             {callTypes.map((ct) => (
               <button
                 key={ct.id}
@@ -183,6 +199,22 @@ export function CardOverrideModal({
               </button>
             ))}
           </div>
+          {subTabs.length > 0 && (
+            <div className="flex flex-wrap gap-2 mb-4">
+              {subTabs.map((sv) => (
+                <button
+                  key={sv.id}
+                  type="button"
+                  onClick={() => setTabSvId(sv.id)}
+                  className={`px-2.5 py-1 text-xs rounded ${
+                    tabSvId === sv.id ? 'bg-brand-600 text-white' : 'bg-slate-100 text-slate-700'
+                  }`}
+                >
+                  {sv.name}
+                </button>
+              ))}
+            </div>
+          )}
 
           <div className="grid md:grid-cols-2 gap-6">
             <div>

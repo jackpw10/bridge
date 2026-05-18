@@ -4,8 +4,14 @@ import { Card } from '../ui/Card';
 import { Button } from '../ui/Button';
 import { Badge } from '../ui/Badge';
 import { Select, Textarea } from '../ui/Input';
+import { MultiSelect } from '../ui/MultiSelect';
 import { QuestionRenderer } from './QuestionRenderer';
-import type { PostTriageQuestion, QuestionType, WorkflowQuestion } from '../../types';
+import type {
+  PostTriageQuestion,
+  QuestionType,
+  TransportReqItem,
+  WorkflowQuestion,
+} from '../../types';
 
 interface Props {
   onDone: () => void;
@@ -17,26 +23,51 @@ export function PreQuestionsPanel({ onDone }: Props) {
   const facilities = useAppStore((s) => s.facilities);
 
   const cfg = t.activeWorkflow?.postTriage;
-  const postQs: PostTriageQuestion[] = cfg?.questions ?? [];
-  const showServicePreQs = !!cfg?.showServicePreQuestions;
+
+  const isQuestions = cfg?.mode === 'questions';
+  const isTransport = cfg?.mode === 'transport_requirements';
+
+  const postQs: PostTriageQuestion[] = isQuestions ? cfg.questions : [];
+  const showServicePreQs = isQuestions ? cfg.showServicePreQuestions : false;
+  const transportItems: TransportReqItem[] = isTransport ? cfg.items : [];
 
   function postAnswered(q: PostTriageQuestion): boolean {
     const v = t.postTriageAnswers[q.id] ?? '';
     return v.trim().length > 0;
   }
 
-  function allAnswered(): boolean {
-    for (const q of postQs) {
-      if (!postAnswered(q)) return false;
+  function trItemAnswered(item: TransportReqItem): boolean {
+    if (item.type === 'multiselect') {
+      const raw = t.postTriageAnswers[`${item.id}__sel`] ?? '';
+      try {
+        return (JSON.parse(raw) as string[]).length > 0;
+      } catch {
+        return false;
+      }
     }
-    if (showServicePreQs) {
-      for (const item of t.acQueue) {
-        const qs = t.getActiveCardQs(item.svcId, t.callTypeId, item.destFacId);
-        for (const q of qs) {
-          const key = `${item.svcId}:${q.id}`;
-          if (!t.acStates[key]) return false;
+    return (t.postTriageAnswers[item.id] ?? '').trim().length > 0;
+  }
+
+  function allAnswered(): boolean {
+    if (isQuestions) {
+      for (const q of postQs) if (!postAnswered(q)) return false;
+      if (showServicePreQs) {
+        for (const item of t.acQueue) {
+          const qs = t.getActiveCardQs(item.svcId, t.callTypeId, t.subVersionId, item.destFacId);
+          for (const q of qs) {
+            const key = `${item.svcId}:${q.id}`;
+            if (!t.acStates[key]) return false;
+          }
         }
       }
+      return true;
+    }
+    if (isTransport) {
+      for (const item of transportItems) {
+        if (item.type === 'multiselect' && !trItemAnswered(item)) return false;
+        // text fields are optional
+      }
+      return true;
     }
     return true;
   }
@@ -48,7 +79,7 @@ export function PreQuestionsPanel({ onDone }: Props) {
         <Button size="sm" variant="ghost" onClick={t.goToWorkflow}>Back to questions</Button>
       </div>
 
-      {postQs.length > 0 && (
+      {isQuestions && postQs.length > 0 && (
         <Card title="Post Triage Cards" description="Answer these before generating the case summary.">
           <div className="space-y-4">
             {postQs.map((q) => (
@@ -63,11 +94,33 @@ export function PreQuestionsPanel({ onDone }: Props) {
         </Card>
       )}
 
-      {showServicePreQs && t.acQueue.map((item) => {
+      {isTransport && (
+        <Card title="Transport requirements">
+          <div className="space-y-4">
+            {transportItems.map((item) => (
+              <TransportReqRow
+                key={item.id}
+                item={item}
+                answers={t.postTriageAnswers}
+                setAnswer={(qid, value, sub) => {
+                  t.setPostTriageAnswer(qid, value);
+                  if (sub) {
+                    for (const [k, v] of Object.entries(sub)) {
+                      t.setPostTriageAnswer(`${qid}__${k}`, v);
+                    }
+                  }
+                }}
+              />
+            ))}
+          </div>
+        </Card>
+      )}
+
+      {isQuestions && showServicePreQs && t.acQueue.map((item) => {
         const svc = specialty.find((s) => s.id === item.svcId);
         const dest = facilities.find((f) => f.id === item.destFacId);
         if (!svc) return null;
-        const qs = t.getActiveCardQs(item.svcId, t.callTypeId, item.destFacId);
+        const qs = t.getActiveCardQs(item.svcId, t.callTypeId, t.subVersionId, item.destFacId);
         return (
           <Card
             key={`${item.svcId}:${item.destFacId}`}
@@ -75,6 +128,7 @@ export function PreQuestionsPanel({ onDone }: Props) {
               <span className="flex items-center gap-2">
                 <span>{svc.name}</span>
                 {t.callTypeName && <Badge tone="blue">{t.callTypeName}</Badge>}
+                {t.subVersionName && <Badge tone="green">{t.subVersionName}</Badge>}
               </span>
             }
             description={`Destination: ${dest?.name ?? '—'}`}
@@ -152,6 +206,47 @@ function PostTriageRow({
       {q.type === 'text' && (
         <Textarea value={value} onChange={(e) => onChange(e.target.value)} />
       )}
+    </div>
+  );
+}
+
+function TransportReqRow({
+  item,
+  answers,
+  setAnswer,
+}: {
+  item: TransportReqItem;
+  answers: Record<string, string>;
+  setAnswer: (qid: string, value: string, sub?: Record<string, string>) => void;
+}) {
+  if (item.type === 'multiselect') {
+    const raw = answers[`${item.id}__sel`] ?? '';
+    let sel: string[] = [];
+    try { sel = raw ? (JSON.parse(raw) as string[]) : []; } catch { sel = []; }
+    const opts = (item.options ?? []).map((o) => ({ value: o.id, label: o.label }));
+    return (
+      <div>
+        <div className="text-sm font-medium text-slate-700 mb-1">{item.label}</div>
+        <MultiSelect
+          options={opts}
+          value={sel}
+          onChange={(v) => {
+            const labels = v
+              .map((id) => item.options?.find((o) => o.id === id)?.label ?? id)
+              .join(', ');
+            setAnswer(item.id, labels, { sel: JSON.stringify(v) });
+          }}
+        />
+      </div>
+    );
+  }
+  return (
+    <div>
+      <div className="text-sm font-medium text-slate-700 mb-1">{item.label}</div>
+      <Textarea
+        value={answers[item.id] ?? ''}
+        onChange={(e) => setAnswer(item.id, e.target.value)}
+      />
     </div>
   );
 }
