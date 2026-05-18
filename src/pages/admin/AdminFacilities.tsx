@@ -51,9 +51,31 @@ export function AdminFacilitiesPage() {
     const reader = new FileReader();
     reader.onload = () => {
       const rows = fromCsv(String(reader.result ?? ''));
+      if (rows.length === 0) {
+        window.alert('Couldn\'t parse any rows from that CSV.');
+        return;
+      }
+      // Headers we recognize
+      const expected = ['name', 'healthAuthorityName', 'healthAuthorityId', 'onSiteServiceIds', 'id'];
+      const headers = Object.keys(rows[0]);
+      const recognized = headers.filter((h) => expected.includes(h));
+      if (recognized.length === 0) {
+        window.alert(
+          `Couldn't find any expected columns in this CSV.\n\n` +
+          `Found columns: ${headers.join(', ')}\n\n` +
+          `Expected at least one of: ${expected.join(', ')}\n\n` +
+          `Tip: click "Export CSV" first to get a template with the right headers.`
+        );
+        return;
+      }
       const byId = new Map(facilities.map((f) => [f.id, f] as const));
       const haByName = new Map(has.map((h) => [h.name.toLowerCase(), h] as const));
+      let skipped = 0;
+      let added = 0;
+      let updated = 0;
       for (const r of rows) {
+        const name = (r.name ?? '').trim();
+        if (!name) { skipped++; continue; }
         const id = r.id || uid('f');
         const cur = byId.get(id);
         // Resolve HA: prefer explicit id, then look up by name.
@@ -63,16 +85,21 @@ export function AdminFacilitiesPage() {
         }
         const next: Facility = {
           id,
-          name: r.name ?? cur?.name ?? '',
+          name,
           healthAuthorityId: haId,
-          onSiteServiceIds: (r.onSiteServiceIds ?? '').split('|').filter(Boolean),
+          onSiteServiceIds: (r.onSiteServiceIds ?? '').split('|').map((s) => s.trim()).filter(Boolean),
           referralPatterns: cur?.referralPatterns ?? {},
           notificationRequirements: cur?.notificationRequirements ?? [],
           serviceNotifs: cur?.serviceNotifs ?? {},
         };
+        if (cur) updated++; else added++;
         byId.set(id, next);
       }
       setFacilities(Array.from(byId.values()));
+      window.alert(
+        `Import complete.\n\n` +
+        `Added: ${added}\nUpdated: ${updated}\nSkipped (no name): ${skipped}`
+      );
     };
     reader.readAsText(file);
   }

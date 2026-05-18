@@ -6,7 +6,6 @@ import type {
   HealthAuthority,
   Notification,
   OverrideReason,
-  ProcessSteps,
   ReferenceCard,
   SpecialtyService,
   Workflow,
@@ -16,6 +15,7 @@ import {
   type CardOverrideRow,
   type DiagnosisRow,
   type FacilityRow,
+  type LegacyWorkflowRow,
   type NotificationRow,
   type ProcessStepsRow,
   type ReferenceCardRow,
@@ -28,8 +28,8 @@ import {
   dxFromRow,
   dxToRow,
   workflowFromRow,
+  workflowToRow,
   psFromRow,
-  psToRow,
   ovFromRow,
   ovToRow,
   haFromRow,
@@ -44,11 +44,11 @@ import {
   defaultFacilities,
   defaultHealthAuthorities,
   defaultOverrideReasons,
-  defaultProcessSteps,
   defaultReferenceCards,
   defaultSpecialtyServices,
-  defaultWorkflow,
+  defaultWorkflows,
 } from '../data/defaults';
+import { uid } from '../utils/id';
 import type { AppSession } from '../lib/auth';
 import { fetchProfile } from '../lib/auth';
 
@@ -57,11 +57,10 @@ interface AppState {
   loading: boolean;
   error: string | null;
 
-  workflow: Workflow;
+  workflows: Workflow[];
   facilities: Facility[];
   specialty: SpecialtyService[];
   diagnoses: Diagnosis[];
-  processSteps: ProcessSteps;
   overrides: CardOverride[];
   reasons: OverrideReason[];
   refCards: ReferenceCard[];
@@ -70,11 +69,10 @@ interface AppState {
 
   setSession: (s: AppSession | null) => void;
 
-  setWorkflow: (w: Workflow) => Promise<void>;
+  setWorkflows: (next: Workflow[]) => Promise<void>;
   setFacilities: (next: Facility[]) => Promise<void>;
   setSpecialty: (next: SpecialtyService[]) => Promise<void>;
   setDiagnoses: (next: Diagnosis[]) => Promise<void>;
-  setProcessSteps: (p: ProcessSteps) => Promise<void>;
   setOverrides: (next: CardOverride[]) => Promise<void>;
   setReasons: (next: OverrideReason[]) => Promise<void>;
   setRefCards: (next: ReferenceCard[]) => Promise<void>;
@@ -88,11 +86,10 @@ export const useAppStore = create<AppState>((set, get) => ({
   loading: true,
   error: null,
 
-  workflow: { questions: [] },
+  workflows: [],
   facilities: [],
   specialty: [],
   diagnoses: [],
-  processSteps: { lltoNo: [], lltoYes: [], hlocNo: [], hlocYes: [] },
   overrides: [],
   reasons: [],
   refCards: [],
@@ -101,14 +98,14 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   setSession: (s) => set({ session: s }),
 
-  // ---------- Diff-based writers (insert new, update changed, delete missing) ----------
-  setWorkflow: async (w) => {
-    set({ workflow: w });
-    await supabase.from('workflow').upsert({ id: 'main', questions: w.questions });
-  },
-  setProcessSteps: async (p) => {
-    set({ processSteps: p });
-    await supabase.from('process_steps').upsert({ id: 'main', ...psToRow(p) });
+  setWorkflows: async (next) => {
+    const prev = get().workflows;
+    set({ workflows: next });
+    await diffSyncList(
+      prev.map((w, i) => workflowToRow(w, i)),
+      next.map((w, i) => workflowToRow(w, i)),
+      'workflows'
+    );
   },
   setFacilities: async (next) => {
     const prev = get().facilities;
@@ -157,10 +154,6 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 }));
 
-// Generic "diff sync" for tables with text PK `id`.
-// - Inserts rows present in next but not prev
-// - Upserts rows present in both whose contents differ
-// - Deletes rows present in prev but not next
 async function diffSyncList<R extends { id: string }>(
   prev: R[],
   next: R[],
@@ -191,20 +184,52 @@ async function diffSyncList<R extends { id: string }>(
   }
 }
 
-// ---------- Seeding (called once if a fresh DB is detected) ----------
+// Seed defaults when a fresh DB is detected.
 async function seedIfEmpty() {
-  // Workflow + ProcessSteps are singletons — seed if missing.
-  const [{ data: wfRow }, { data: psRow }] = await Promise.all([
-    supabase.from('workflow').select('id').eq('id', 'main').maybeSingle(),
-    supabase.from('process_steps').select('id').eq('id', 'main').maybeSingle(),
-  ]);
-  if (!wfRow) {
-    await supabase.from('workflow').insert({ id: 'main', questions: defaultWorkflow.questions });
-  }
-  if (!psRow) {
-    await supabase
+  // Workflows: if empty, try migrating from legacy singleton tables; otherwise seed defaults.
+  const { count: wfCount } = await supabase
+    .from('workflows')
+    .select('id', { count: 'exact', head: true });
+  if ((wfCount ?? 0) === 0) {
+    const { data: legacyWf } = await supabase
+      .from('workflow')
+      .select('*')
+      .eq('id', 'main')
+      .maybeSingle();
+    const { data: legacyPs } = await supabase
       .from('process_steps')
-      .insert({ id: 'main', ...psToRow(defaultProcessSteps) });
+      .select('*')
+      .eq('id', 'main')
+      .maybeSingle();
+
+    if (legacyWf && (legacyWf as LegacyWorkflowRow).questions) {
+      const migrated: Workflow = {
+        id: 'wf_high_acuity',
+        name: 'High Acuity Workflow',
+        questions: ((legacyWf as LegacyWorkflowRow).questions as Workflow['questions']) ?? [],
+        postTriage: {
+          enabled: true,
+          showServicePreQuestions: true,
+          questions: [
+            {
+              id: uid('ptq'),
+              type: 'yesno',
+              text: 'Was the patient accepted outside of PTN?',
+              drivesPtnBucket: true,
+            },
+          ],
+        },
+        processSteps: legacyPs
+          ? psFromRow(legacyPs as ProcessStepsRow)
+          : { lltoNo: [], lltoYes: [], hlocNo: [], hlocYes: [] },
+      };
+      await supabase.from('workflows').insert(workflowToRow(migrated, 0));
+    } else {
+      // Fresh DB — seed the default workflows.
+      await supabase
+        .from('workflows')
+        .insert(defaultWorkflows.map((w, i) => workflowToRow(w, i)));
+    }
   }
 
   // List tables — seed if empty.
@@ -238,11 +263,11 @@ async function seedIfEmpty() {
   }
 }
 
-// ---------- Initial load of all entities ----------
 export async function loadAllData(): Promise<void> {
   try {
     await seedIfEmpty();
     const [
+      { data: wfRows },
       { data: facRows },
       { data: svcRows },
       { data: dxRows },
@@ -251,9 +276,8 @@ export async function loadAllData(): Promise<void> {
       { data: refRows },
       { data: haRows },
       { data: notifRows },
-      { data: wfRow },
-      { data: psRow },
     ] = await Promise.all([
+      supabase.from('workflows').select('*').order('position'),
       supabase.from('facilities').select('*'),
       supabase.from('specialty_services').select('*'),
       supabase.from('diagnoses').select('*'),
@@ -262,11 +286,10 @@ export async function loadAllData(): Promise<void> {
       supabase.from('reference_cards').select('*'),
       supabase.from('health_authorities').select('*'),
       supabase.from('notifications').select('*').order('ts', { ascending: false }),
-      supabase.from('workflow').select('*').eq('id', 'main').maybeSingle(),
-      supabase.from('process_steps').select('*').eq('id', 'main').maybeSingle(),
     ]);
 
     useAppStore.setState({
+      workflows: (wfRows as WorkflowRow[] | null ?? []).map(workflowFromRow),
       facilities: (facRows as FacilityRow[] | null ?? []).map(facilityFromRow),
       specialty: (svcRows as SpecialtyServiceRow[] | null ?? []).map(svcFromRow),
       diagnoses: (dxRows as DiagnosisRow[] | null ?? []).map(dxFromRow),
@@ -275,10 +298,6 @@ export async function loadAllData(): Promise<void> {
       refCards: (refRows as ReferenceCardRow[] | null ?? []).map(refCardFromRow),
       healthAuthorities: (haRows ?? []).map(haFromRow),
       notifications: (notifRows as NotificationRow[] | null ?? []).map(notifFromRow),
-      workflow: wfRow ? workflowFromRow(wfRow as WorkflowRow) : { questions: [] },
-      processSteps: psRow
-        ? psFromRow(psRow as ProcessStepsRow)
-        : { lltoNo: [], lltoYes: [], hlocNo: [], hlocYes: [] },
       loading: false,
       error: null,
     });
@@ -290,9 +309,6 @@ export async function loadAllData(): Promise<void> {
   }
 }
 
-// ---------- Realtime subscriptions ----------
-// For each list table, we just re-fetch the table when any change is observed.
-// Simpler than diffing single-row payloads, and fine at this scale.
 let unsubscribers: Array<() => void> = [];
 
 export function startRealtime() {
@@ -300,8 +316,13 @@ export function startRealtime() {
 
   function refetch(table: string) {
     return async () => {
-      const { data } = await supabase.from(table).select('*');
       const set = useAppStore.setState;
+      if (table === 'workflows') {
+        const { data } = await supabase.from('workflows').select('*').order('position');
+        set({ workflows: (data as WorkflowRow[] | null ?? []).map(workflowFromRow) });
+        return;
+      }
+      const { data } = await supabase.from(table).select('*');
       const safeRows = data ?? [];
       switch (table) {
         case 'facilities':
@@ -330,6 +351,7 @@ export function startRealtime() {
   }
 
   const tables = [
+    'workflows',
     'facilities',
     'specialty_services',
     'diagnoses',
@@ -353,26 +375,6 @@ export function startRealtime() {
     });
   }
 
-  // Singletons
-  const wfChannel = supabase
-    .channel('realtime_workflow')
-    .on('postgres_changes', { event: '*', schema: 'public', table: 'workflow' }, async () => {
-      const { data } = await supabase.from('workflow').select('*').eq('id', 'main').maybeSingle();
-      if (data) useAppStore.setState({ workflow: workflowFromRow(data as WorkflowRow) });
-    })
-    .subscribe();
-  unsubscribers.push(() => supabase.removeChannel(wfChannel));
-
-  const psChannel = supabase
-    .channel('realtime_process_steps')
-    .on('postgres_changes', { event: '*', schema: 'public', table: 'process_steps' }, async () => {
-      const { data } = await supabase.from('process_steps').select('*').eq('id', 'main').maybeSingle();
-      if (data) useAppStore.setState({ processSteps: psFromRow(data as ProcessStepsRow) });
-    })
-    .subscribe();
-  unsubscribers.push(() => supabase.removeChannel(psChannel));
-
-  // Notifications — also realtime; reusing the same poll-replacement.
   const notifChannel = supabase
     .channel('realtime_notifications')
     .on(
@@ -397,7 +399,6 @@ export function stopRealtime() {
   unsubscribers = [];
 }
 
-// ---------- Auth bootstrap ----------
 let authInitialized = false;
 
 export async function initAuth() {
@@ -424,12 +425,10 @@ export async function initAuth() {
     }
   });
 
-  // If a session is already present from page load, also load data + start realtime.
   if (data.session?.user) {
     await loadAllData();
     startRealtime();
   } else {
-    // Nothing to load, but we're done initializing.
     useAppStore.setState({ loading: false });
   }
 }

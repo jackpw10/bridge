@@ -12,7 +12,6 @@ export function ResultPage() {
   const t = useTriage();
   const specialty = useAppStore((s) => s.specialty);
   const facilities = useAppStore((s) => s.facilities);
-  const processSteps = useAppStore((s) => s.processSteps);
   const diagnoses = useAppStore((s) => s.diagnoses);
   const refCards = useAppStore((s) => s.refCards);
   const reasons = useAppStore((s) => s.reasons);
@@ -90,15 +89,16 @@ export function ResultPage() {
   }, [t, notifications, facilities, specialty, diagnoses, session, setNotifications]);
 
   // ----- case summary text -----
-  const summary = useMemo(() => buildSummary(), [t, facilities, specialty, diagnoses, processSteps, filteredNotifReqs, reasons]);
+  const summary = useMemo(() => buildSummary(), [t, facilities, specialty, diagnoses, filteredNotifReqs, reasons]);
 
   function buildSummary(): string {
     const lines: string[] = [];
     lines.push('IFT Triage Result');
+    lines.push(`Workflow: ${t.activeWorkflow?.name ?? '—'}`);
     lines.push(`Generated: ${new Date().toLocaleString()}`);
-    lines.push(
-      `Version: ${t.verKey.toUpperCase()}${t.acStates['ptn'] === 'Yes' ? ' (Outside PTN)' : ''}`
-    );
+    if (t.hasTriageQuestion) {
+      lines.push(`Version: ${t.verKey.toUpperCase()}${t.psKey.endsWith('Yes') ? ' (Outside PTN)' : ''}`);
+    }
     lines.push('');
     lines.push(`Sending: ${t.sendingFacility?.name ?? '—'}`);
     if (t.destFacility) lines.push(`Receiving: ${t.destFacility.name}`);
@@ -110,7 +110,16 @@ export function ResultPage() {
       const answer = formatAnswerForSummary(q);
       lines.push(`  • ${q.text}: ${answer || '—'}`);
     }
-    lines.push(`  • Patient accepted outside of PTN: ${t.acStates['ptn'] || '—'}`);
+
+    // ---- Post-triage answers ----
+    const ptQs = t.activeWorkflow?.postTriage.questions ?? [];
+    if (ptQs.length > 0) {
+      lines.push('');
+      lines.push('Post-triage answers:');
+      for (const q of ptQs) {
+        lines.push(`  • ${q.text}: ${t.postTriageAnswers[q.id] || '—'}`);
+      }
+    }
 
     // ---- Per-service action cards ----
     for (const item of t.acQueue) {
@@ -133,11 +142,10 @@ export function ResultPage() {
       }
     }
 
-    const generic = processSteps[t.psKey];
-    if (generic.length) {
+    if (t.activeProcessSteps.length) {
       lines.push('');
       lines.push('Process steps:');
-      generic.forEach((s, i) => lines.push(`  ${i + 1}. ${s.text}`));
+      t.activeProcessSteps.forEach((s, i) => lines.push(`  ${i + 1}. ${s.text}`));
     }
 
     if (filteredNotifReqs.length) {
@@ -202,10 +210,13 @@ export function ResultPage() {
     <div className="space-y-4">
       <div>
         <h1 className="text-2xl font-bold text-slate-800">IFT Triage Result</h1>
-        <p className="text-sm text-slate-500">
-          {t.sendingFacility?.name ?? '—'} → {t.destFacility?.name ?? '—'} ·{' '}
-          <Badge tone={t.verKey === 'llto' ? 'green' : 'red'}>{t.verKey.toUpperCase()}</Badge>
-          {t.acStates['ptn'] === 'Yes' && <Badge tone="amber" className="ml-1">Outside PTN</Badge>}
+        <p className="text-sm text-slate-500 flex flex-wrap items-center gap-2">
+          <Badge tone="blue">{t.activeWorkflow?.name ?? '—'}</Badge>
+          <span>{t.sendingFacility?.name ?? '—'} → {t.destFacility?.name ?? '—'}</span>
+          {t.hasTriageQuestion && (
+            <Badge tone={t.verKey === 'llto' ? 'green' : 'red'}>{t.verKey.toUpperCase()}</Badge>
+          )}
+          {t.psKey.endsWith('Yes') && <Badge tone="amber">Outside PTN</Badge>}
         </p>
       </div>
 
@@ -277,12 +288,12 @@ export function ResultPage() {
             </div>
           )}
 
-          <Card title="Generic process steps" description={`Bucket: ${t.psKey}`}>
-            {processSteps[t.psKey].length === 0 ? (
-              <div className="text-sm text-slate-400">None configured.</div>
+          <Card title="Generic process steps" description={t.hasTriageQuestion ? `Bucket: ${t.psKey}` : undefined}>
+            {t.activeProcessSteps.length === 0 ? (
+              <div className="text-sm text-slate-400">None configured for this workflow.</div>
             ) : (
               <ol className="list-decimal pl-5 space-y-1 text-sm">
-                {processSteps[t.psKey].map((s) => <li key={s.id}>{s.text}</li>)}
+                {t.activeProcessSteps.map((s) => <li key={s.id}>{s.text}</li>)}
               </ol>
             )}
           </Card>
@@ -353,7 +364,7 @@ export function ResultPage() {
       </div>
 
       <div className="flex justify-between">
-        <Button variant="secondary" onClick={() => { t.goToWorkflow(); nav('/triage'); }}>
+        <Button variant="secondary" onClick={() => { t.goToWorkflow(); nav('/triage/run'); }}>
           Back
         </Button>
         <Button onClick={completeCase}>Complete case</Button>

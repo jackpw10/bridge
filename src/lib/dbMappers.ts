@@ -102,14 +102,51 @@ export function dxToRow(d: Diagnosis): DiagnosisRow {
   };
 }
 
-// ---------- Workflow ----------
-export interface WorkflowRow {
+// ---------- Workflow (legacy singleton — used only by migration) ----------
+export interface LegacyWorkflowRow {
   id: string;
   questions: unknown;
 }
 
+// ---------- Workflows (new, plural) ----------
+export interface WorkflowRow {
+  id: string;
+  name: string;
+  questions: unknown;
+  post_triage: unknown;
+  process_steps: unknown;
+  position: number;
+}
+
 export function workflowFromRow(r: WorkflowRow): Workflow {
-  return { questions: (r.questions as Workflow['questions']) ?? [] };
+  return {
+    id: r.id,
+    name: r.name,
+    questions: (r.questions as Workflow['questions']) ?? [],
+    postTriage: (r.post_triage as Workflow['postTriage']) ?? {
+      enabled: false,
+      showServicePreQuestions: false,
+      questions: [],
+    },
+    processSteps:
+      (r.process_steps as Workflow['processSteps']) ?? {
+        lltoNo: [],
+        lltoYes: [],
+        hlocNo: [],
+        hlocYes: [],
+      },
+  };
+}
+
+export function workflowToRow(w: Workflow, position: number): WorkflowRow {
+  return {
+    id: w.id,
+    name: w.name,
+    questions: w.questions,
+    post_triage: w.postTriage,
+    process_steps: w.processSteps,
+    position,
+  };
 }
 
 // ---------- Process steps ----------

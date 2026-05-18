@@ -16,36 +16,69 @@ export const defaultHealthAuthorities: HealthAuthority[] = [
   { id: 'ha_fh', name: 'Fraser Health' },
 ];
 
-export const defaultWorkflow: Workflow = {
-  questions: [
-    { id: 'q_facility', type: 'facility', text: 'Sending facility' },
-    {
-      id: 'q_triage',
-      type: 'triage',
-      text: 'Is this a Lateral / Lower Triage Outside (LLTO) transfer? (Yes = LLTO, No = HLOC)',
-    },
-    {
-      id: 'q_specialty',
-      type: 'specialty_multi',
-      text: 'Which specialty service(s) are required?',
-    },
-    {
-      id: 'q_diagnosis',
-      type: 'diagnosis_multi',
-      text: 'Working / suspected diagnoses',
-    },
-    {
-      id: 'q_referral',
-      type: 'referral_resolve',
-      text: 'Confirm receiving facility',
-    },
-    {
-      id: 'q_ptn',
-      type: 'yesno',
-      text: 'Is the receiving facility outside PTN?',
-    },
+export const defaultProcessSteps: ProcessSteps = {
+  lltoNo: [
+    { id: 'ps_l_n_1', text: 'Confirm receiving bed availability' },
+    { id: 'ps_l_n_2', text: 'Arrange ground transport via dispatch' },
+    { id: 'ps_l_n_3', text: 'Document acceptance and ETA' },
+  ],
+  lltoYes: [
+    { id: 'ps_l_y_1', text: 'Confirm outside-PTN acceptance' },
+    { id: 'ps_l_y_2', text: 'Engage IFT coordinator for inter-region transfer' },
+  ],
+  hlocNo: [
+    { id: 'ps_h_n_1', text: 'Notify receiving site charge nurse' },
+    { id: 'ps_h_n_2', text: 'Arrange critical care transport team' },
+    { id: 'ps_h_n_3', text: 'Confirm escort qualifications (RN/RT/MD)' },
+  ],
+  hlocYes: [
+    { id: 'ps_h_y_1', text: 'Escalate to Medical Director on-call' },
+    { id: 'ps_h_y_2', text: 'Confirm tertiary acceptance via Transfer Center' },
   ],
 };
+
+export const defaultWorkflows: Workflow[] = [
+  {
+    id: 'wf_high_acuity',
+    name: 'High Acuity Workflow',
+    questions: [
+      { id: 'q_facility', type: 'facility', text: 'Sending facility' },
+      {
+        id: 'q_triage',
+        type: 'triage',
+        text: 'Is this a Lateral / Lower Triage Outside (LLTO) transfer? (Yes = LLTO, No = HLOC)',
+      },
+      {
+        id: 'q_specialty',
+        type: 'specialty_multi',
+        text: 'Which specialty service(s) are required?',
+      },
+      {
+        id: 'q_diagnosis',
+        type: 'diagnosis_multi',
+        text: 'Working / suspected diagnoses',
+      },
+      {
+        id: 'q_referral',
+        type: 'referral_resolve',
+        text: 'Confirm receiving facility',
+      },
+    ],
+    postTriage: {
+      enabled: true,
+      showServicePreQuestions: true,
+      questions: [
+        {
+          id: 'ptq_ptn',
+          type: 'yesno',
+          text: 'Was the patient accepted outside of PTN?',
+          drivesPtnBucket: true,
+        },
+      ],
+    },
+    processSteps: defaultProcessSteps,
+  },
+];
 
 export const defaultSpecialtyServices: SpecialtyService[] = [
   {
@@ -190,27 +223,6 @@ export const defaultDiagnoses: Diagnosis[] = [
   { id: 'dx_sepsis', text: 'Sepsis', notifEnabled: false, notifMessage: '' },
   { id: 'dx_trauma', text: 'Major trauma', notifEnabled: false, notifMessage: '' },
 ];
-
-export const defaultProcessSteps: ProcessSteps = {
-  lltoNo: [
-    { id: 'ps_l_n_1', text: 'Confirm receiving bed availability' },
-    { id: 'ps_l_n_2', text: 'Arrange ground transport via dispatch' },
-    { id: 'ps_l_n_3', text: 'Document acceptance and ETA' },
-  ],
-  lltoYes: [
-    { id: 'ps_l_y_1', text: 'Confirm outside-PTN acceptance' },
-    { id: 'ps_l_y_2', text: 'Engage IFT coordinator for inter-region transfer' },
-  ],
-  hlocNo: [
-    { id: 'ps_h_n_1', text: 'Notify receiving site charge nurse' },
-    { id: 'ps_h_n_2', text: 'Arrange critical care transport team' },
-    { id: 'ps_h_n_3', text: 'Confirm escort qualifications (RN/RT/MD)' },
-  ],
-  hlocYes: [
-    { id: 'ps_h_y_1', text: 'Escalate to Medical Director on-call' },
-    { id: 'ps_h_y_2', text: 'Confirm tertiary acceptance via Transfer Center' },
-  ],
-};
 
 export const defaultOverrideReasons: OverrideReason[] = [
   { id: 'or_1', text: 'Receiving facility at capacity' },

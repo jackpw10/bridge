@@ -3,12 +3,11 @@ import { Card } from '../../components/ui/Card';
 
 const tiles = [
   { to: '/admin/users', title: 'Users', desc: 'Manage user accounts and admin roles. New accounts sign up via /signup.' },
-  { to: '/admin/workflow', title: 'Triage workflow', desc: 'Order and configure the questions users answer.' },
+  { to: '/admin/workflow', title: 'Triage workflows', desc: 'Create and configure workflows (questions, post-triage cards, process steps).' },
   { to: '/admin/health-authorities', title: 'Health Authorities', desc: 'The list of Health Authorities used by facilities and TA cards.' },
   { to: '/admin/facilities', title: 'Facilities', desc: 'Sites, on-site services, referral patterns, notifications.' },
   { to: '/admin/specialty', title: 'Specialty services', desc: 'LLTO / HLOC pre-questions, exception steps, Transport Advisor cards.' },
   { to: '/admin/diagnoses', title: 'Diagnoses', desc: 'Master list of diagnoses with optional notification triggers.' },
-  { to: '/admin/process-steps', title: 'Generic process steps', desc: 'Universal steps for each of the four version buckets.' },
   { to: '/admin/reasons', title: 'Override reasons', desc: 'Reasons offered when a user overrides a referral pattern.' },
   { to: '/admin/reference-cards', title: 'Reference cards', desc: 'Quick-lookup cards available from the result screen.' },
 ];

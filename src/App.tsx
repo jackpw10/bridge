@@ -7,17 +7,18 @@ import { initAuth } from './store/appStore';
 import { useAppStore } from './store/appStore';
 import { RequireAdmin, RequireAuth } from './components/RouteGuards';
 import { TriagePage } from './pages/Triage';
+import { TriageStartPage } from './pages/TriageStart';
 import { ResultPage } from './pages/Result';
 import { ProcessCardsPage } from './pages/ProcessCards';
 import { ReferenceCardsPage } from './pages/ReferenceCards';
 import { AdminHomePage } from './pages/admin/AdminHome';
 import { AdminWorkflowPage } from './pages/admin/AdminWorkflow';
+import { AdminWorkflowDetailPage } from './pages/admin/AdminWorkflowDetail';
 import { AdminFacilitiesPage } from './pages/admin/AdminFacilities';
 import { AdminFacilityDetailPage } from './pages/admin/AdminFacilityDetail';
 import { AdminSpecialtyPage } from './pages/admin/AdminSpecialty';
 import { AdminSpecialtyDetailPage } from './pages/admin/AdminSpecialtyDetail';
 import { AdminDiagnosesPage } from './pages/admin/AdminDiagnoses';
-import { AdminProcessStepsPage } from './pages/admin/AdminProcessSteps';
 import { AdminReasonsPage } from './pages/admin/AdminReasons';
 import { AdminReferenceCardsPage } from './pages/admin/AdminReferenceCards';
 import { AdminUsersPage } from './pages/admin/AdminUsers';
@@ -80,7 +81,8 @@ export default function App() {
         }
       >
         <Route index element={<Navigate to="/triage" replace />} />
-        <Route path="/triage" element={<TriagePage />} />
+        <Route path="/triage" element={<TriageStartPage />} />
+        <Route path="/triage/run" element={<TriagePage />} />
         <Route path="/triage/result" element={<ResultPage />} />
         <Route path="/process-cards" element={<ProcessCardsPage />} />
         <Route path="/reference-cards" element={<ReferenceCardsPage />} />
@@ -114,6 +116,14 @@ export default function App() {
           element={
             <RequireAdmin>
               <AdminWorkflowPage />
+            </RequireAdmin>
+          }
+        />
+        <Route
+          path="/admin/workflow/:id"
+          element={
+            <RequireAdmin>
+              <AdminWorkflowDetailPage />
             </RequireAdmin>
           }
         />
@@ -154,14 +164,6 @@ export default function App() {
           element={
             <RequireAdmin>
               <AdminDiagnosesPage />
-            </RequireAdmin>
-          }
-        />
-        <Route
-          path="/admin/process-steps"
-          element={
-            <RequireAdmin>
-              <AdminProcessStepsPage />
             </RequireAdmin>
           }
         />

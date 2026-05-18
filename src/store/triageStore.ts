@@ -3,14 +3,17 @@ import { create } from 'zustand';
 type Phase = 'workflow' | 'pre-questions' | 'result';
 
 interface TriageRuntime {
+  activeWorkflowId: string;
   answers: Record<string, string>;
   currentIndex: number;
   taShown: Record<string, boolean>;
   phase: Phase;
   acStates: Record<string, string>;
+  postTriageAnswers: Record<string, string>;
   notifsSent: boolean;
   notes: string;
 
+  startCase: (workflowId: string) => void;
   setAnswer: (qid: string, value: string, subKeys?: Record<string, string>) => void;
   goPrev: () => void;
   goNext: () => void;
@@ -19,22 +22,26 @@ interface TriageRuntime {
   setPhase: (p: Phase) => void;
   reset: () => void;
   setAcAnswer: (key: string, value: string) => void;
+  setPostTriageAnswer: (key: string, value: string) => void;
   markNotifsSent: () => void;
   setNotes: (s: string) => void;
 }
 
 const initial = {
+  activeWorkflowId: '',
   answers: {} as Record<string, string>,
   currentIndex: 0,
   taShown: {} as Record<string, boolean>,
   phase: 'workflow' as Phase,
   acStates: {} as Record<string, string>,
+  postTriageAnswers: {} as Record<string, string>,
   notifsSent: false,
   notes: '',
 };
 
 export const useTriageStore = create<TriageRuntime>((set) => ({
   ...initial,
+  startCase: (workflowId) => set({ ...initial, activeWorkflowId: workflowId }),
   setAnswer: (qid, value, subKeys) =>
     set((s) => {
       const answers = { ...s.answers, [qid]: value };
@@ -52,6 +59,8 @@ export const useTriageStore = create<TriageRuntime>((set) => ({
   setPhase: (p) => set({ phase: p }),
   reset: () => set({ ...initial }),
   setAcAnswer: (key, value) => set((s) => ({ acStates: { ...s.acStates, [key]: value } })),
+  setPostTriageAnswer: (key, value) =>
+    set((s) => ({ postTriageAnswers: { ...s.postTriageAnswers, [key]: value } })),
   markNotifsSent: () => set({ notifsSent: true }),
   setNotes: (s) => set({ notes: s }),
 }));

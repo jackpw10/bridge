@@ -34,8 +34,27 @@ export interface WorkflowQuestion {
   condVal?: string;
 }
 
+// A question shown on the Post-Triage screen. Simpler than workflow questions.
+export interface PostTriageQuestion {
+  id: string;
+  type: 'yesno' | 'dropdown' | 'text';
+  text: string;
+  options?: string[];
+  // If true and the answer is "Yes" (yesno) or any non-empty value (other types),
+  // the case is treated as Outside-PTN for picking the process step bucket.
+  drivesPtnBucket?: boolean;
+}
+
 export interface Workflow {
+  id: string;
+  name: string;
   questions: WorkflowQuestion[];
+  postTriage: {
+    enabled: boolean;
+    showServicePreQuestions: boolean;
+    questions: PostTriageQuestion[];
+  };
+  processSteps: ProcessSteps;
 }
 
 // ---------- Health Authorities ----------

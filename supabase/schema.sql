@@ -81,10 +81,22 @@ create table if not exists public.specialty_services (
   transport_advisor jsonb not null
 );
 
--- Singleton table: always one row with id = 'main'
+-- LEGACY (kept so the in-app migration can read from it). Once migrated, you
+-- can safely DROP this table from the Supabase dashboard.
 create table if not exists public.workflow (
   id        text primary key default 'main',
   questions jsonb not null default '[]'::jsonb
+);
+
+-- One row per workflow (High Acuity, Low Acuity, REPATE, ...).
+create table if not exists public.workflows (
+  id              text primary key,
+  name            text not null,
+  questions       jsonb not null default '[]'::jsonb,
+  post_triage     jsonb not null default '{"enabled":false,"showServicePreQuestions":false,"questions":[]}'::jsonb,
+  process_steps   jsonb not null default '{"lltoNo":[],"lltoYes":[],"hlocNo":[],"hlocYes":[]}'::jsonb,
+  position        integer not null default 0,
+  created_at      timestamptz not null default now()
 );
 
 create table if not exists public.diagnoses (
@@ -144,6 +156,7 @@ alter table public.health_authorities     enable row level security;
 alter table public.facilities             enable row level security;
 alter table public.specialty_services     enable row level security;
 alter table public.workflow               enable row level security;
+alter table public.workflows              enable row level security;
 alter table public.diagnoses              enable row level security;
 alter table public.process_steps          enable row level security;
 alter table public.card_overrides         enable row level security;
@@ -195,9 +208,13 @@ create policy "fac_admin" on public.facilities for all    to authenticated using
 create policy "svc_read"  on public.specialty_services for select to authenticated using (true);
 create policy "svc_admin" on public.specialty_services for all    to authenticated using (public.is_admin()) with check (public.is_admin());
 
--- ---- workflow ----
+-- ---- workflow (legacy) ----
 create policy "wf_read"  on public.workflow for select to authenticated using (true);
 create policy "wf_admin" on public.workflow for all    to authenticated using (public.is_admin()) with check (public.is_admin());
+
+-- ---- workflows ----
+create policy "wfs_read"  on public.workflows for select to authenticated using (true);
+create policy "wfs_admin" on public.workflows for all    to authenticated using (public.is_admin()) with check (public.is_admin());
 
 -- ---- diagnoses ----
 create policy "dx_read"  on public.diagnoses for select to authenticated using (true);
@@ -235,7 +252,7 @@ declare
   t record;
   table_list text[] := array[
     'profiles', 'health_authorities', 'facilities', 'specialty_services',
-    'workflow', 'diagnoses', 'process_steps', 'card_overrides',
+    'workflow', 'workflows', 'diagnoses', 'process_steps', 'card_overrides',
     'override_reasons', 'reference_cards', 'notifications'
   ];
 begin

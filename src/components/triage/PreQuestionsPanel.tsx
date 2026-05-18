@@ -3,9 +3,9 @@ import { useAppStore } from '../../store/appStore';
 import { Card } from '../ui/Card';
 import { Button } from '../ui/Button';
 import { Badge } from '../ui/Badge';
-import { Select } from '../ui/Input';
+import { Select, Textarea } from '../ui/Input';
 import { QuestionRenderer } from './QuestionRenderer';
-import type { QuestionType, WorkflowQuestion } from '../../types';
+import type { PostTriageQuestion, QuestionType, WorkflowQuestion } from '../../types';
 
 interface Props {
   onDone: () => void;
@@ -16,15 +16,26 @@ export function PreQuestionsPanel({ onDone }: Props) {
   const specialty = useAppStore((s) => s.specialty);
   const facilities = useAppStore((s) => s.facilities);
 
-  const ptn = t.acStates['ptn'] ?? '';
+  const cfg = t.activeWorkflow?.postTriage;
+  const postQs: PostTriageQuestion[] = cfg?.questions ?? [];
+  const showServicePreQs = !!cfg?.showServicePreQuestions;
+
+  function postAnswered(q: PostTriageQuestion): boolean {
+    const v = t.postTriageAnswers[q.id] ?? '';
+    return v.trim().length > 0;
+  }
 
   function allAnswered(): boolean {
-    if (!ptn) return false;
-    for (const item of t.acQueue) {
-      const qs = t.getActiveCardQs(item.svcId, t.verKey, item.destFacId);
-      for (const q of qs) {
-        const key = `${item.svcId}:${q.id}`;
-        if (!t.acStates[key]) return false;
+    for (const q of postQs) {
+      if (!postAnswered(q)) return false;
+    }
+    if (showServicePreQs) {
+      for (const item of t.acQueue) {
+        const qs = t.getActiveCardQs(item.svcId, t.verKey, item.destFacId);
+        for (const q of qs) {
+          const key = `${item.svcId}:${q.id}`;
+          if (!t.acStates[key]) return false;
+        }
       }
     }
     return true;
@@ -32,27 +43,27 @@ export function PreQuestionsPanel({ onDone }: Props) {
 
   return (
     <div className="space-y-4">
-      <Card
-        title="Pre-questions before generating the result"
-        description="Answer the service-specific questions, then generate the case summary."
-      >
-        <div className="space-y-2">
-          <Select
-            label="Was the patient accepted outside of PTN?"
-            value={ptn}
-            onChange={(e) => t.setAcAnswer('ptn', e.target.value)}
-          >
-            <option value="">— select —</option>
-            <option value="No">No</option>
-            <option value="Yes">Yes</option>
-          </Select>
-          <div className="text-xs text-slate-500">
-            Used to choose between Standard and Outside-PTN process steps.
-          </div>
-        </div>
-      </Card>
+      <div className="flex items-center justify-between">
+        <Badge tone="blue">{t.activeWorkflow?.name}</Badge>
+        <Button size="sm" variant="ghost" onClick={t.goToWorkflow}>Back to questions</Button>
+      </div>
 
-      {t.acQueue.map((item) => {
+      {postQs.length > 0 && (
+        <Card title="Post Triage Cards" description="Answer these before generating the case summary.">
+          <div className="space-y-4">
+            {postQs.map((q) => (
+              <PostTriageRow
+                key={q.id}
+                q={q}
+                value={t.postTriageAnswers[q.id] ?? ''}
+                onChange={(v) => t.setPostTriageAnswer(q.id, v)}
+              />
+            ))}
+          </div>
+        </Card>
+      )}
+
+      {showServicePreQs && t.acQueue.map((item) => {
         const svc = specialty.find((s) => s.id === item.svcId);
         const dest = facilities.find((f) => f.id === item.destFacId);
         if (!svc) return null;
@@ -63,7 +74,9 @@ export function PreQuestionsPanel({ onDone }: Props) {
             title={
               <span className="flex items-center gap-2">
                 <span>{svc.name}</span>
-                <Badge tone={t.verKey === 'llto' ? 'green' : 'red'}>{t.verKey.toUpperCase()}</Badge>
+                {t.hasTriageQuestion && (
+                  <Badge tone={t.verKey === 'llto' ? 'green' : 'red'}>{t.verKey.toUpperCase()}</Badge>
+                )}
               </span>
             }
             description={`Destination: ${dest?.name ?? '—'}`}
@@ -74,7 +87,6 @@ export function PreQuestionsPanel({ onDone }: Props) {
               <div className="space-y-4">
                 {qs.map((q) => {
                   const key = `${item.svcId}:${q.id}`;
-                  // Adapt to QuestionRenderer's signature by wrapping
                   const wf: WorkflowQuestion = {
                     id: q.id,
                     type: q.type as QuestionType,
@@ -102,6 +114,46 @@ export function PreQuestionsPanel({ onDone }: Props) {
         <Button variant="secondary" onClick={() => t.goToWorkflow()}>Back</Button>
         <Button onClick={onDone} disabled={!allAnswered()}>Generate result</Button>
       </div>
+    </div>
+  );
+}
+
+function PostTriageRow({
+  q,
+  value,
+  onChange,
+}: {
+  q: PostTriageQuestion;
+  value: string;
+  onChange: (v: string) => void;
+}) {
+  return (
+    <div>
+      <div className="text-sm font-medium text-slate-700 mb-1">{q.text}</div>
+      {q.type === 'yesno' && (
+        <div className="flex gap-2">
+          {['Yes', 'No'].map((opt) => (
+            <Button
+              key={opt}
+              variant={value === opt ? 'primary' : 'secondary'}
+              onClick={() => onChange(opt)}
+            >
+              {opt}
+            </Button>
+          ))}
+        </div>
+      )}
+      {q.type === 'dropdown' && (
+        <Select value={value} onChange={(e) => onChange(e.target.value)}>
+          <option value="">— select —</option>
+          {(q.options ?? []).map((o) => (
+            <option key={o} value={o}>{o}</option>
+          ))}
+        </Select>
+      )}
+      {q.type === 'text' && (
+        <Textarea value={value} onChange={(e) => onChange(e.target.value)} />
+      )}
     </div>
   );
 }

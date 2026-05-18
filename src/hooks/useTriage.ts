@@ -6,11 +6,13 @@ import type {
   CardOverridePart,
   ExceptionStep,
   Facility,
+  ProcessStep,
   PsKey,
   SpecialtyService,
   TemplateQuestion,
   TriageContext,
   VerKey,
+  Workflow,
   WorkflowQuestion,
 } from '../types';
 
@@ -51,8 +53,8 @@ function findContext(
       if (f) facId = f;
     } else if (q.type === 'triage') {
       const a = answers[q.id];
-      if (a === 'Yes') llto = true;       // Yes → LLTO
-      else if (a === 'No') llto = false;  // No → HLOC
+      if (a === 'Yes') llto = true;
+      else if (a === 'No') llto = false;
     } else if (q.type === 'specialty_multi') {
       const raw = answers[`${q.id}__svcs`];
       if (raw) {
@@ -120,11 +122,16 @@ function getActiveCardSteps(
 }
 
 export interface UseTriageResult {
+  activeWorkflow: Workflow | null;
+  hasReferralQuestion: boolean;
+  hasTriageQuestion: boolean;
+
   answers: Record<string, string>;
   currentIndex: number;
   taShown: Record<string, boolean>;
   phase: 'workflow' | 'pre-questions' | 'result';
   acStates: Record<string, string>;
+  postTriageAnswers: Record<string, string>;
   notifsSent: boolean;
   notes: string;
 
@@ -136,6 +143,7 @@ export interface UseTriageResult {
   psKey: PsKey;
   destFacility: Facility | null;
   sendingFacility: Facility | null;
+  activeProcessSteps: ProcessStep[];
 
   setAnswer: (qid: string, value: string, subKeys?: Record<string, string>) => void;
   goPrev: () => void;
@@ -147,6 +155,7 @@ export interface UseTriageResult {
   goToWorkflow: () => void;
   reset: () => void;
   setAcAnswer: (key: string, value: string) => void;
+  setPostTriageAnswer: (key: string, value: string) => void;
   markNotifsSent: () => void;
   setNotes: (s: string) => void;
 
@@ -160,16 +169,18 @@ export interface UseTriageResult {
 }
 
 export function useTriage(): UseTriageResult {
-  const workflow = useAppStore((s) => s.workflow);
+  const workflows = useAppStore((s) => s.workflows);
   const facilities = useAppStore((s) => s.facilities);
   const specialty = useAppStore((s) => s.specialty);
   const overrides = useAppStore((s) => s.overrides);
 
+  const activeWorkflowId = useTriageStore((s) => s.activeWorkflowId);
   const answers = useTriageStore((s) => s.answers);
   const currentIndex = useTriageStore((s) => s.currentIndex);
   const taShown = useTriageStore((s) => s.taShown);
   const phase = useTriageStore((s) => s.phase);
   const acStates = useTriageStore((s) => s.acStates);
+  const postTriageAnswers = useTriageStore((s) => s.postTriageAnswers);
   const notifsSent = useTriageStore((s) => s.notifsSent);
   const notes = useTriageStore((s) => s.notes);
 
@@ -181,12 +192,20 @@ export function useTriage(): UseTriageResult {
   const setPhase = useTriageStore((s) => s.setPhase);
   const reset = useTriageStore((s) => s.reset);
   const setAcAnswer = useTriageStore((s) => s.setAcAnswer);
+  const setPostTriageAnswer = useTriageStore((s) => s.setPostTriageAnswer);
   const markNotifsSent = useTriageStore((s) => s.markNotifsSent);
   const setNotes = useTriageStore((s) => s.setNotes);
 
+  const activeWorkflow = useMemo(
+    () => workflows.find((w) => w.id === activeWorkflowId) ?? null,
+    [workflows, activeWorkflowId]
+  );
+
+  const workflowQuestions = activeWorkflow?.questions ?? [];
+
   const visibleQuestions = useMemo(
-    () => computeVisible(workflow.questions, answers),
-    [workflow.questions, answers]
+    () => computeVisible(workflowQuestions, answers),
+    [workflowQuestions, answers]
   );
 
   const context = useMemo(
@@ -194,6 +213,7 @@ export function useTriage(): UseTriageResult {
     [visibleQuestions, answers]
   );
 
+  // verKey: if no triage question, defaults to llto (Standard fallback).
   const verKey: VerKey = context.llto !== false ? 'llto' : 'hloc';
 
   const acQueue: AcQueueItem[] = useMemo(() => {
@@ -204,11 +224,31 @@ export function useTriage(): UseTriageResult {
     }));
   }, [context.destFacId, context.svcIds]);
 
-  const ptn = acStates['ptn'] === 'Yes' ? 'Yes' : 'No';
-  const psKey: PsKey = (`${verKey}${ptn}` as PsKey);
+  // PTN bucket determination: look for a post-triage question with
+  // drivesPtnBucket=true and check whether its answer is "Yes" (or any truthy
+  // non-blank for text/dropdown types).
+  const ptnTriggered = useMemo(() => {
+    const qs = activeWorkflow?.postTriage.questions ?? [];
+    const driver = qs.find((q) => q.drivesPtnBucket);
+    if (!driver) return false;
+    const a = postTriageAnswers[driver.id] ?? '';
+    if (driver.type === 'yesno') return a === 'Yes';
+    return a.trim().length > 0;
+  }, [activeWorkflow, postTriageAnswers]);
+
+  const ptnSuffix = ptnTriggered ? 'Yes' : 'No';
+  const psKey: PsKey = (`${verKey}${ptnSuffix}` as PsKey);
 
   const destFacility = facilities.find((f) => f.id === context.destFacId) ?? null;
   const sendingFacility = facilities.find((f) => f.id === context.facId) ?? null;
+
+  const activeProcessSteps = useMemo(() => {
+    if (!activeWorkflow) return [];
+    return activeWorkflow.processSteps[psKey] ?? [];
+  }, [activeWorkflow, psKey]);
+
+  const hasReferralQuestion = workflowQuestions.some((q) => q.type === 'referral_resolve');
+  const hasTriageQuestion = workflowQuestions.some((q) => q.type === 'triage');
 
   const goToPreQuestions = useCallback(() => setPhase('pre-questions'), [setPhase]);
   const goToResult = useCallback(() => setPhase('result'), [setPhase]);
@@ -235,11 +275,15 @@ export function useTriage(): UseTriageResult {
   );
 
   return {
+    activeWorkflow,
+    hasReferralQuestion,
+    hasTriageQuestion,
     answers,
     currentIndex,
     taShown,
     phase,
     acStates,
+    postTriageAnswers,
     notifsSent,
     notes,
     visibleQuestions,
@@ -250,6 +294,7 @@ export function useTriage(): UseTriageResult {
     psKey,
     destFacility,
     sendingFacility,
+    activeProcessSteps,
     setAnswer,
     goPrev,
     goNext,
@@ -260,6 +305,7 @@ export function useTriage(): UseTriageResult {
     goToWorkflow,
     reset,
     setAcAnswer,
+    setPostTriageAnswer,
     markNotifsSent,
     setNotes,
     getActiveCardQs: getActiveCardQsWrapped,

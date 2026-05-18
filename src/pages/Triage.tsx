@@ -21,12 +21,18 @@ export function TriagePage() {
   const specialty = useAppStore((s) => s.specialty);
   const nav = useNavigate();
 
+  // If somebody hits /triage/run without picking a workflow, send them back.
+  useEffect(() => {
+    if (!t.activeWorkflow && t.phase === 'workflow') {
+      nav('/triage', { replace: true });
+    }
+  }, [t.activeWorkflow, t.phase, nav]);
+
   const isAtEnd = t.currentIndex >= t.visibleQuestions.length;
   const referralQuestion = t.visibleQuestions.find((q) => q.type === 'referral_resolve');
   const referralAnswered =
     !!referralQuestion && !!t.answers[`${referralQuestion.id}__choice`];
 
-  // Find every TA card that matches: enabled service + verKey + destination HA.
   const taItems = useMemo<TaItem[]>(() => {
     if (!referralAnswered) return [];
     const destHaId = t.destFacility?.healthAuthorityId ?? '';
@@ -49,20 +55,39 @@ export function TriagePage() {
     [taItems, t.taShown]
   );
 
+  // Decide whether the post-triage screen is needed for this workflow.
+  const postTriageNeeded = useMemo(() => {
+    const cfg = t.activeWorkflow?.postTriage;
+    if (!cfg || !cfg.enabled) return false;
+    if (cfg.questions.length > 0) return true;
+    if (cfg.showServicePreQuestions && t.acQueue.length > 0) return true;
+    return false;
+  }, [t.activeWorkflow, t.acQueue.length]);
+
   useEffect(() => {
     if (t.phase !== 'workflow') return;
+    if (!t.activeWorkflow) return;
     if (!isAtEnd) return;
-    if (t.acQueue.length === 0) {
+    if (postTriageNeeded) {
+      t.goToPreQuestions();
+    } else {
       t.goToResult();
       nav('/triage/result');
-      return;
     }
-    t.goToPreQuestions();
-  }, [t.phase, isAtEnd, t.acQueue.length, t, nav]);
+  }, [t.phase, isAtEnd, postTriageNeeded, t, nav]);
 
   if (t.phase === 'pre-questions') {
-    return <PreQuestionsPanel onDone={() => { t.goToResult(); nav('/triage/result'); }} />;
+    return (
+      <PreQuestionsPanel
+        onDone={() => {
+          t.goToResult();
+          nav('/triage/result');
+        }}
+      />
+    );
   }
+
+  if (!t.activeWorkflow) return null;
 
   if (!t.currentQuestion) {
     return (
@@ -98,12 +123,15 @@ export function TriagePage() {
 
   return (
     <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <Badge tone="blue">{t.activeWorkflow.name}</Badge>
+        <Button size="sm" variant="ghost" onClick={() => { t.reset(); nav('/triage'); }}>
+          Cancel case
+        </Button>
+      </div>
       <ProgressBar current={t.currentIndex} total={t.visibleQuestions.length} />
       <Card
         title={`Question ${t.currentIndex + 1} of ${t.visibleQuestions.length}`}
-        actions={
-          <Button size="sm" variant="ghost" onClick={() => t.reset()}>Start over</Button>
-        }
       >
         <div className="space-y-4">
           <div>
@@ -174,10 +202,12 @@ export function TriagePage() {
                 );
               })}
             </ol>
-            <div className="text-xs text-slate-500 mt-3 flex gap-2 items-center">
-              Version:{' '}
-              <Badge tone={t.verKey === 'llto' ? 'green' : 'red'}>{t.verKey.toUpperCase()}</Badge>
-            </div>
+            {t.hasTriageQuestion && (
+              <div className="text-xs text-slate-500 mt-3 flex gap-2 items-center">
+                Version:{' '}
+                <Badge tone={t.verKey === 'llto' ? 'green' : 'red'}>{t.verKey.toUpperCase()}</Badge>
+              </div>
+            )}
           </Card>
         </div>
         <div className="lg:col-span-1">
