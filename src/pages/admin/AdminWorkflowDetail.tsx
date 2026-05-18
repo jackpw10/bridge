@@ -11,7 +11,6 @@ import { DragList } from '../../components/ui/DragList';
 import type {
   PostTriageQuestion,
   ProcessStep,
-  PsKey,
   QuestionType,
   Workflow,
   WorkflowQuestion,
@@ -20,7 +19,6 @@ import { uid } from '../../utils/id';
 
 const TYPES: { value: QuestionType; label: string }[] = [
   { value: 'yesno', label: 'Yes / No' },
-  { value: 'triage', label: 'Triage (Yes=LLTO, No=HLOC)' },
   { value: 'dropdown', label: 'Dropdown' },
   { value: 'text', label: 'Free text' },
   { value: 'facility', label: 'Sending facility' },
@@ -29,23 +27,16 @@ const TYPES: { value: QuestionType; label: string }[] = [
   { value: 'referral_resolve', label: 'Referral resolve' },
 ];
 
-const PS_TABS: { key: PsKey; label: string }[] = [
-  { key: 'lltoNo', label: 'LLTO Standard' },
-  { key: 'lltoYes', label: 'LLTO Outside PTN' },
-  { key: 'hlocNo', label: 'HLOC Standard' },
-  { key: 'hlocYes', label: 'HLOC Outside PTN' },
-];
-
 export function AdminWorkflowDetailPage() {
   const { id } = useParams<{ id: string }>();
   const workflows = useAppStore((s) => s.workflows);
   const setWorkflows = useAppStore((s) => s.setWorkflows);
+  const callTypes = useAppStore((s) => s.callTypes);
   const nav = useNavigate();
 
   const wf = workflows.find((w) => w.id === id);
   const [editingQ, setEditingQ] = useState<WorkflowQuestion | null>(null);
   const [addingQ, setAddingQ] = useState(false);
-  const [psTab, setPsTab] = useState<PsKey>('lltoNo');
 
   if (!wf) {
     return (
@@ -71,7 +62,6 @@ export function AdminWorkflowDetailPage() {
     nav('/admin/workflow');
   }
 
-  // ---------- workflow questions ----------
   function saveQ(q: WorkflowQuestion) {
     const exists = wfRef.questions.some((x) => x.id === q.id);
     const next = exists
@@ -87,7 +77,6 @@ export function AdminWorkflowDetailPage() {
     patch({ questions: next });
   }
 
-  // ---------- post-triage questions ----------
   function addPostQ() {
     const q: PostTriageQuestion = { id: uid('ptq'), type: 'yesno', text: 'New question' };
     patchPostTriage({ questions: [...wfRef.postTriage.questions, q] });
@@ -106,31 +95,20 @@ export function AdminWorkflowDetailPage() {
     patchPostTriage({ questions: next });
   }
 
-  // ---------- process steps ----------
   function addStep() {
     const step: ProcessStep = { id: uid('ps'), text: 'New step' };
-    patch({
-      processSteps: { ...wfRef.processSteps, [psTab]: [...wfRef.processSteps[psTab], step] },
-    });
+    patch({ processSteps: [...wfRef.processSteps, step] });
   }
-  function updateStep(sid: string, text: string) {
+  function updateStep(sid: string, p: Partial<ProcessStep>) {
     patch({
-      processSteps: {
-        ...wfRef.processSteps,
-        [psTab]: wfRef.processSteps[psTab].map((s) => (s.id === sid ? { ...s, text } : s)),
-      },
+      processSteps: wfRef.processSteps.map((s) => (s.id === sid ? { ...s, ...p } : s)),
     });
   }
   function removeStep(sid: string) {
-    patch({
-      processSteps: {
-        ...wfRef.processSteps,
-        [psTab]: wfRef.processSteps[psTab].filter((s) => s.id !== sid),
-      },
-    });
+    patch({ processSteps: wfRef.processSteps.filter((s) => s.id !== sid) });
   }
   function reorderSteps(next: ProcessStep[]) {
-    patch({ processSteps: { ...wfRef.processSteps, [psTab]: next } });
+    patch({ processSteps: next });
   }
 
   const newQ = (): WorkflowQuestion => ({ id: uid('q'), type: 'yesno', text: 'New question' });
@@ -146,7 +124,24 @@ export function AdminWorkflowDetailPage() {
       </div>
 
       <Card title="Identity">
-        <Input label="Name" value={wf.name} onChange={(e) => patch({ name: e.target.value })} />
+        <div className="grid grid-cols-2 gap-3">
+          <Input label="Name" value={wf.name} onChange={(e) => patch({ name: e.target.value })} />
+          <Select
+            label="Call type"
+            value={wf.callTypeId}
+            onChange={(e) => patch({ callTypeId: e.target.value })}
+          >
+            <option value="">— pick one —</option>
+            {callTypes.map((ct) => (
+              <option key={ct.id} value={ct.id}>{ct.name}</option>
+            ))}
+          </Select>
+        </div>
+        {!wf.callTypeId && (
+          <div className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded p-2 mt-2">
+            Pick a call type — it controls which version of service-template content this workflow uses.
+          </div>
+        )}
       </Card>
 
       <Card
@@ -180,7 +175,7 @@ export function AdminWorkflowDetailPage() {
 
       <Card
         title="Post Triage Cards"
-        description="The screen shown after triage questions. Has its own admin-defined questions plus an optional per-service pre-question section."
+        description="Screen shown after the triage questions. Toggle off if this workflow doesn't need it."
       >
         <div className="space-y-3">
           <Toggle
@@ -228,11 +223,6 @@ export function AdminWorkflowDetailPage() {
                               />
                             )}
                           </div>
-                          <Toggle
-                            checked={!!q.drivesPtnBucket}
-                            onChange={(v) => updatePostQ(q.id, { drivesPtnBucket: v })}
-                            label="Drives Outside-PTN bucket (a 'Yes' / non-empty answer uses the Outside-PTN process steps)"
-                          />
                         </div>
                         <Button size="sm" variant="ghost" onClick={() => removePostQ(q.id)}>Delete</Button>
                       </div>
@@ -250,36 +240,43 @@ export function AdminWorkflowDetailPage() {
 
       <Card
         title="Generic process steps"
-        description="Shown on the result page. Bucket is picked from the triage question (LLTO/HLOC) and the post-triage PTN driver."
+        description="Shown on the result page. Each step can optionally be conditional on a post-triage answer."
+        actions={<Button size="sm" onClick={addStep}>+ Add step</Button>}
       >
-        <div className="flex gap-2 border-b border-slate-200 mb-4 flex-wrap">
-          {PS_TABS.map((v) => (
-            <button
-              key={v.key}
-              type="button"
-              onClick={() => setPsTab(v.key)}
-              className={`px-3 py-2 text-sm font-medium border-b-2 ${psTab === v.key ? 'border-brand-600 text-brand-700' : 'border-transparent text-slate-500'}`}
-            >
-              {v.label}
-            </button>
-          ))}
-        </div>
-        <div className="flex justify-end mb-2">
-          <Button size="sm" onClick={addStep}>+ Add step</Button>
-        </div>
         <DragList
-          items={wf.processSteps[psTab]}
+          items={wf.processSteps}
           onReorder={reorderSteps}
           renderItem={(s, handle) => (
-            <div className="flex items-start gap-2 border rounded-md p-3 bg-white">
-              {handle}
-              <div className="flex-1">
-                <Textarea value={s.text} onChange={(e) => updateStep(s.id, e.target.value)} />
+            <div className="border rounded-md p-3 bg-white">
+              <div className="flex items-start gap-2">
+                {handle}
+                <div className="flex-1 space-y-2">
+                  <Textarea value={s.text} onChange={(e) => updateStep(s.id, { text: e.target.value })} />
+                  <div className="grid grid-cols-2 gap-2">
+                    <Select
+                      value={s.condQid ?? ''}
+                      onChange={(e) => updateStep(s.id, { condQid: e.target.value || undefined })}
+                    >
+                      <option value="">— always show —</option>
+                      {wfRef.postTriage.questions.map((q) => (
+                        <option key={q.id} value={q.id}>{q.text}</option>
+                      ))}
+                    </Select>
+                    <Input
+                      placeholder="show when answer = …"
+                      value={s.condVal ?? ''}
+                      onChange={(e) => updateStep(s.id, { condVal: e.target.value || undefined })}
+                    />
+                  </div>
+                </div>
+                <Button size="sm" variant="ghost" onClick={() => removeStep(s.id)}>Delete</Button>
               </div>
-              <Button size="sm" variant="ghost" onClick={() => removeStep(s.id)}>Delete</Button>
             </div>
           )}
         />
+        {wf.processSteps.length === 0 && (
+          <div className="text-xs text-slate-400 mt-2">No process steps yet.</div>
+        )}
       </Card>
 
       {(editingQ || addingQ) && (

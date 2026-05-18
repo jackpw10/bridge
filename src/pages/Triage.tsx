@@ -41,14 +41,13 @@ export function TriagePage() {
       const svc = specialty.find((s) => s.id === svcId);
       if (!svc || !svc.transportAdvisor.enabled) continue;
       for (const card of svc.transportAdvisor.cards) {
-        const versionMatch = t.verKey === 'llto' ? card.llto : card.hloc;
-        if (!versionMatch) continue;
+        if (!card.callTypeIds.includes(t.callTypeId)) continue;
         if (!card.haIds.includes(destHaId)) continue;
         out.push({ svcId, svcName: svc.name, card });
       }
     }
     return out;
-  }, [referralAnswered, t.context.svcIds, t.destFacility?.healthAuthorityId, t.verKey, specialty]);
+  }, [referralAnswered, t.context.svcIds, t.destFacility?.healthAuthorityId, t.callTypeId, specialty]);
 
   const unseenTa = useMemo(
     () => taItems.filter((i) => !t.taShown[i.card.id]),
@@ -202,10 +201,9 @@ export function TriagePage() {
                 );
               })}
             </ol>
-            {t.hasTriageQuestion && (
+            {t.callTypeName && (
               <div className="text-xs text-slate-500 mt-3 flex gap-2 items-center">
-                Version:{' '}
-                <Badge tone={t.verKey === 'llto' ? 'green' : 'red'}>{t.verKey.toUpperCase()}</Badge>
+                Call type: <Badge tone="blue">{t.callTypeName}</Badge>
               </div>
             )}
           </Card>

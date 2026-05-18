@@ -14,10 +14,19 @@ export interface Session {
   role: 'admin' | 'user';
 }
 
+// ---------- Call Types ----------
+// Admin-defined call types: LLTO, HLOC, REPATE, Scheduled, Discharge, Advice, etc.
+// Each workflow is fixed to a single call type, which controls which version
+// of service-template content and overrides apply.
+export interface CallType {
+  id: string;
+  name: string;
+}
+
 // ---------- Workflow ----------
 export type QuestionType =
   | 'yesno'
-  | 'triage'
+  | 'triage'     // legacy — behaves like yesno now
   | 'dropdown'
   | 'text'
   | 'facility'
@@ -34,27 +43,25 @@ export interface WorkflowQuestion {
   condVal?: string;
 }
 
-// A question shown on the Post-Triage screen. Simpler than workflow questions.
+// A question shown on the Post-Triage screen.
 export interface PostTriageQuestion {
   id: string;
   type: 'yesno' | 'dropdown' | 'text';
   text: string;
   options?: string[];
-  // If true and the answer is "Yes" (yesno) or any non-empty value (other types),
-  // the case is treated as Outside-PTN for picking the process step bucket.
-  drivesPtnBucket?: boolean;
 }
 
 export interface Workflow {
   id: string;
   name: string;
+  callTypeId: string;            // FK → CallType.id
   questions: WorkflowQuestion[];
   postTriage: {
     enabled: boolean;
     showServicePreQuestions: boolean;
     questions: PostTriageQuestion[];
   };
-  processSteps: ProcessSteps;
+  processSteps: ProcessStep[];   // flat list with optional per-step conditions
 }
 
 // ---------- Health Authorities ----------
@@ -73,8 +80,7 @@ export interface ReferralPattern {
 export interface NotificationRequirement {
   id: string;
   text: string;
-  llto: boolean;
-  hloc: boolean;
+  callTypeIds: string[];   // include list of call types this applies to. Empty = all.
   svcIds: string[];        // include list — empty = match any
   excludeSvcIds: string[]; // exclude list — only consulted when svcIds is empty
 }
@@ -82,7 +88,7 @@ export interface NotificationRequirement {
 export interface Facility {
   id: string;
   name: string;
-  healthAuthorityId: string;          // FK → HealthAuthority.id, '' if unset
+  healthAuthorityId: string;
   onSiteServiceIds: string[];
   referralPatterns: Record<string, ReferralPattern>;
   notificationRequirements: NotificationRequirement[];
@@ -111,20 +117,17 @@ export interface ServiceTemplate {
 
 export interface TACard {
   id: string;
-  name: string;          // free-text label for the card (e.g. "VCH/FH protocol")
-  llto: boolean;         // applies to LLTO cases?
-  hloc: boolean;         // applies to HLOC cases?
-  haIds: string[];       // applies when destination facility's HA is in this set
+  name: string;
+  callTypeIds: string[];   // applies when the case's call type is in this set
+  haIds: string[];         // applies when destination facility's HA is in this set
   steps: { id: string; text: string }[];
 }
 
 export interface SpecialtyService {
   id: string;
   name: string;
-  template: {
-    llto: ServiceTemplate;
-    hloc: ServiceTemplate;
-  };
+  // Template content keyed by call type ID.
+  templates: Record<string, ServiceTemplate>;
   transportAdvisor: {
     enabled: boolean;
     cards: TACard[];
@@ -144,8 +147,7 @@ export interface CardOverride {
   id: string;
   facilityId: string;
   svcId: string;
-  llto: CardOverridePart;
-  hloc: CardOverridePart;
+  parts: Record<string, CardOverridePart>;   // keyed by call type ID
 }
 
 // ---------- Diagnoses ----------
@@ -160,16 +162,11 @@ export interface Diagnosis {
 export interface ProcessStep {
   id: string;
   text: string;
+  // Optional condition: only show this step when the post-triage answer for
+  // `condQid` equals `condVal`. Both must be set for the condition to apply.
+  condQid?: string;
+  condVal?: string;
 }
-
-export interface ProcessSteps {
-  lltoNo: ProcessStep[];
-  lltoYes: ProcessStep[];
-  hlocNo: ProcessStep[];
-  hlocYes: ProcessStep[];
-}
-
-export type PsKey = keyof ProcessSteps;
 
 // ---------- Reference cards ----------
 export interface ReferenceCard {
@@ -203,12 +200,9 @@ export interface AcQueueItem {
   svcId: string;
 }
 
-export type VerKey = 'llto' | 'hloc';
-
 export interface TriageContext {
   facId: string | null;
   svcIds: string[];
-  llto: boolean | null;
   destFacId: string | null;
   diagnoses: string[];
 }

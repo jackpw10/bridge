@@ -1,18 +1,22 @@
 // Maps between the app-facing camelCase types and the Postgres snake_case rows.
-// Centralizing these keeps the rest of the app unaware of the DB shape.
 
 import type {
+  CallType,
   Diagnosis,
   Facility,
   HealthAuthority,
   Notification,
   OverrideReason,
   CardOverride,
-  ProcessSteps,
   ReferenceCard,
   SpecialtyService,
   Workflow,
 } from '../types';
+
+// ---------- Call types ----------
+export function callTypeFromRow(r: { id: string; name: string }): CallType {
+  return { id: r.id, name: r.name };
+}
 
 // ---------- Facilities ----------
 export interface FacilityRow {
@@ -54,7 +58,7 @@ export function facilityToRow(f: Facility): FacilityRow {
 export interface SpecialtyServiceRow {
   id: string;
   name: string;
-  template: unknown;
+  templates: unknown;
   transport_advisor: unknown;
 }
 
@@ -62,7 +66,7 @@ export function svcFromRow(r: SpecialtyServiceRow): SpecialtyService {
   return {
     id: r.id,
     name: r.name,
-    template: r.template as SpecialtyService['template'],
+    templates: (r.templates as SpecialtyService['templates']) ?? {},
     transportAdvisor: r.transport_advisor as SpecialtyService['transportAdvisor'],
   };
 }
@@ -71,7 +75,7 @@ export function svcToRow(s: SpecialtyService): SpecialtyServiceRow {
   return {
     id: s.id,
     name: s.name,
-    template: s.template,
+    templates: s.templates,
     transport_advisor: s.transportAdvisor,
   };
 }
@@ -102,16 +106,17 @@ export function dxToRow(d: Diagnosis): DiagnosisRow {
   };
 }
 
-// ---------- Workflow (legacy singleton — used only by migration) ----------
+// ---------- Workflow (legacy singleton, kept for migration only) ----------
 export interface LegacyWorkflowRow {
   id: string;
   questions: unknown;
 }
 
-// ---------- Workflows (new, plural) ----------
+// ---------- Workflows ----------
 export interface WorkflowRow {
   id: string;
   name: string;
+  call_type_id: string;
   questions: unknown;
   post_triage: unknown;
   process_steps: unknown;
@@ -122,19 +127,14 @@ export function workflowFromRow(r: WorkflowRow): Workflow {
   return {
     id: r.id,
     name: r.name,
+    callTypeId: r.call_type_id ?? '',
     questions: (r.questions as Workflow['questions']) ?? [],
     postTriage: (r.post_triage as Workflow['postTriage']) ?? {
       enabled: false,
       showServicePreQuestions: false,
       questions: [],
     },
-    processSteps:
-      (r.process_steps as Workflow['processSteps']) ?? {
-        lltoNo: [],
-        lltoYes: [],
-        hlocNo: [],
-        hlocYes: [],
-      },
+    processSteps: (r.process_steps as Workflow['processSteps']) ?? [],
   };
 }
 
@@ -142,37 +142,11 @@ export function workflowToRow(w: Workflow, position: number): WorkflowRow {
   return {
     id: w.id,
     name: w.name,
+    call_type_id: w.callTypeId,
     questions: w.questions,
     post_triage: w.postTriage,
     process_steps: w.processSteps,
     position,
-  };
-}
-
-// ---------- Process steps ----------
-export interface ProcessStepsRow {
-  id: string;
-  llto_no: unknown;
-  llto_yes: unknown;
-  hloc_no: unknown;
-  hloc_yes: unknown;
-}
-
-export function psFromRow(r: ProcessStepsRow): ProcessSteps {
-  return {
-    lltoNo: (r.llto_no as ProcessSteps['lltoNo']) ?? [],
-    lltoYes: (r.llto_yes as ProcessSteps['lltoYes']) ?? [],
-    hlocNo: (r.hloc_no as ProcessSteps['hlocNo']) ?? [],
-    hlocYes: (r.hloc_yes as ProcessSteps['hlocYes']) ?? [],
-  };
-}
-
-export function psToRow(p: ProcessSteps): Omit<ProcessStepsRow, 'id'> {
-  return {
-    llto_no: p.lltoNo,
-    llto_yes: p.lltoYes,
-    hloc_no: p.hlocNo,
-    hloc_yes: p.hlocYes,
   };
 }
 
@@ -181,8 +155,7 @@ export interface CardOverrideRow {
   id: string;
   facility_id: string;
   svc_id: string;
-  llto: unknown;
-  hloc: unknown;
+  parts: unknown;
 }
 
 export function ovFromRow(r: CardOverrideRow): CardOverride {
@@ -190,8 +163,7 @@ export function ovFromRow(r: CardOverrideRow): CardOverride {
     id: r.id,
     facilityId: r.facility_id,
     svcId: r.svc_id,
-    llto: r.llto as CardOverride['llto'],
-    hloc: r.hloc as CardOverride['hloc'],
+    parts: (r.parts as CardOverride['parts']) ?? {},
   };
 }
 
@@ -200,8 +172,7 @@ export function ovToRow(o: CardOverride): CardOverrideRow {
     id: o.id,
     facility_id: o.facilityId,
     svc_id: o.svcId,
-    llto: o.llto,
-    hloc: o.hloc,
+    parts: o.parts,
   };
 }
 
@@ -240,7 +211,7 @@ export function notifToRow(n: Notification): NotificationRow {
   };
 }
 
-// ---------- Simple ones (just rename casing or pass through) ----------
+// ---------- Simple ones ----------
 export function haFromRow(r: { id: string; name: string }): HealthAuthority {
   return { id: r.id, name: r.name };
 }

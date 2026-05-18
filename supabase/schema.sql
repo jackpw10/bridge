@@ -59,6 +59,11 @@ as $$
 $$;
 
 -- ----------------------------- CONFIG ENTITIES -------------------------------
+create table if not exists public.call_types (
+  id   text primary key,
+  name text not null
+);
+
 create table if not exists public.health_authorities (
   id   text primary key,
   name text not null
@@ -77,9 +82,12 @@ create table if not exists public.facilities (
 create table if not exists public.specialty_services (
   id                text primary key,
   name              text not null,
-  template          jsonb not null,
+  template          jsonb not null default '{}'::jsonb,
+  templates         jsonb not null default '{}'::jsonb,
   transport_advisor jsonb not null
 );
+alter table public.specialty_services alter column template drop not null;
+alter table public.specialty_services add column if not exists templates jsonb not null default '{}'::jsonb;
 
 -- LEGACY (kept so the in-app migration can read from it). Once migrated, you
 -- can safely DROP this table from the Supabase dashboard.
@@ -92,12 +100,14 @@ create table if not exists public.workflow (
 create table if not exists public.workflows (
   id              text primary key,
   name            text not null,
+  call_type_id    text not null default '',
   questions       jsonb not null default '[]'::jsonb,
   post_triage     jsonb not null default '{"enabled":false,"showServicePreQuestions":false,"questions":[]}'::jsonb,
-  process_steps   jsonb not null default '{"lltoNo":[],"lltoYes":[],"hlocNo":[],"hlocYes":[]}'::jsonb,
+  process_steps   jsonb not null default '[]'::jsonb,
   position        integer not null default 0,
   created_at      timestamptz not null default now()
 );
+alter table public.workflows add column if not exists call_type_id text not null default '';
 
 create table if not exists public.diagnoses (
   id            text primary key,
@@ -119,9 +129,13 @@ create table if not exists public.card_overrides (
   id          text primary key,
   facility_id text not null,
   svc_id      text not null,
-  llto        jsonb not null,
-  hloc        jsonb not null
+  llto        jsonb,
+  hloc        jsonb,
+  parts       jsonb not null default '{}'::jsonb
 );
+alter table public.card_overrides add column if not exists parts jsonb not null default '{}'::jsonb;
+alter table public.card_overrides alter column llto drop not null;
+alter table public.card_overrides alter column hloc drop not null;
 
 create table if not exists public.override_reasons (
   id   text primary key,
@@ -157,6 +171,7 @@ alter table public.facilities             enable row level security;
 alter table public.specialty_services     enable row level security;
 alter table public.workflow               enable row level security;
 alter table public.workflows              enable row level security;
+alter table public.call_types             enable row level security;
 alter table public.diagnoses              enable row level security;
 alter table public.process_steps          enable row level security;
 alter table public.card_overrides         enable row level security;
@@ -216,6 +231,10 @@ create policy "wf_admin" on public.workflow for all    to authenticated using (p
 create policy "wfs_read"  on public.workflows for select to authenticated using (true);
 create policy "wfs_admin" on public.workflows for all    to authenticated using (public.is_admin()) with check (public.is_admin());
 
+-- ---- call_types ----
+create policy "ct_read"  on public.call_types for select to authenticated using (true);
+create policy "ct_admin" on public.call_types for all    to authenticated using (public.is_admin()) with check (public.is_admin());
+
 -- ---- diagnoses ----
 create policy "dx_read"  on public.diagnoses for select to authenticated using (true);
 create policy "dx_admin" on public.diagnoses for all    to authenticated using (public.is_admin()) with check (public.is_admin());
@@ -252,7 +271,7 @@ declare
   t record;
   table_list text[] := array[
     'profiles', 'health_authorities', 'facilities', 'specialty_services',
-    'workflow', 'workflows', 'diagnoses', 'process_steps', 'card_overrides',
+    'workflow', 'workflows', 'call_types', 'diagnoses', 'process_steps', 'card_overrides',
     'override_reasons', 'reference_cards', 'notifications'
   ];
 begin

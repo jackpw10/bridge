@@ -20,6 +20,7 @@ export function AdminFacilityDetailPage() {
   const overrides = useAppStore((s) => s.overrides);
   const setOverrides = useAppStore((s) => s.setOverrides);
   const has = useAppStore((s) => s.healthAuthorities);
+  const callTypes = useAppStore((s) => s.callTypes);
   const nav = useNavigate();
 
   const haName = (id: string) => has.find((h) => h.id === id)?.name ?? '';
@@ -194,8 +195,7 @@ export function AdminFacilityDetailPage() {
               updateNotifReq({
                 id: uid('nr'),
                 text: '',
-                llto: true,
-                hloc: true,
+                callTypeIds: [],
                 svcIds: [],
                 excludeSvcIds: [],
               })
@@ -217,10 +217,14 @@ export function AdminFacilityDetailPage() {
                   placeholder="Requirement text"
                 />
                 <div className="flex gap-4 flex-wrap items-center">
-                  <Toggle checked={nr.llto} onChange={(v) => updateNotifReq({ ...nr, llto: v })} label="LLTO" />
-                  <Toggle checked={nr.hloc} onChange={(v) => updateNotifReq({ ...nr, hloc: v })} label="HLOC" />
                   <Button size="sm" variant="ghost" onClick={() => removeNotifReq(nr.id)} className="ml-auto">Delete</Button>
                 </div>
+                <MultiSelect
+                  label="Limit to call types (empty = all call types)"
+                  options={callTypes.map((c) => ({ value: c.id, label: c.name }))}
+                  value={nr.callTypeIds}
+                  onChange={(v) => updateNotifReq({ ...nr, callTypeIds: v })}
+                />
                 <MultiSelect
                   label="Limit to services (empty = any)"
                   options={services.map((s) => ({ value: s.id, label: s.name }))}

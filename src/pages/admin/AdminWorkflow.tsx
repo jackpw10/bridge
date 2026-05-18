@@ -8,18 +8,21 @@ import type { Workflow } from '../../types';
 export function AdminWorkflowPage() {
   const workflows = useAppStore((s) => s.workflows);
   const setWorkflows = useAppStore((s) => s.setWorkflows);
+  const callTypes = useAppStore((s) => s.callTypes);
 
   function add() {
+    const firstCallType = callTypes[0]?.id ?? '';
     const next: Workflow = {
       id: uid('wf'),
       name: 'New workflow',
+      callTypeId: firstCallType,
       questions: [],
       postTriage: {
         enabled: false,
         showServicePreQuestions: false,
         questions: [],
       },
-      processSteps: { lltoNo: [], lltoYes: [], hlocNo: [], hlocYes: [] },
+      processSteps: [],
     };
     setWorkflows([...workflows, next]);
   }

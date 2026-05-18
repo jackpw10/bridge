@@ -25,19 +25,17 @@ export function ResultPage() {
   const filteredNotifReqs = useMemo(() => {
     if (!receiving) return [];
     return receiving.notificationRequirements.filter((nr) => {
-      if (t.verKey === 'llto' && !nr.llto) return false;
-      if (t.verKey === 'hloc' && !nr.hloc) return false;
+      // call-type gate
+      if (nr.callTypeIds.length > 0 && !nr.callTypeIds.includes(t.callTypeId)) return false;
       if (nr.svcIds.length > 0) {
-        // include list: at least one case service must be in it
         return t.context.svcIds.some((svc) => nr.svcIds.includes(svc));
       }
-      // no include list — drop if any case service is in exclude list
       if (nr.excludeSvcIds.length > 0) {
         return !t.context.svcIds.some((svc) => nr.excludeSvcIds.includes(svc));
       }
       return true;
     });
-  }, [receiving, t.verKey, t.context.svcIds]);
+  }, [receiving, t.callTypeId, t.context.svcIds]);
 
   // ----- side-effect: send out per-service + per-diagnosis notifications once -----
   useEffect(() => {
@@ -96,8 +94,8 @@ export function ResultPage() {
     lines.push('IFT Triage Result');
     lines.push(`Workflow: ${t.activeWorkflow?.name ?? '—'}`);
     lines.push(`Generated: ${new Date().toLocaleString()}`);
-    if (t.hasTriageQuestion) {
-      lines.push(`Version: ${t.verKey.toUpperCase()}${t.psKey.endsWith('Yes') ? ' (Outside PTN)' : ''}`);
+    if (t.callTypeName) {
+      lines.push(`Call type: ${t.callTypeName}`);
     }
     lines.push('');
     lines.push(`Sending: ${t.sendingFacility?.name ?? '—'}`);
@@ -127,8 +125,8 @@ export function ResultPage() {
       const dest = facilities.find((f) => f.id === item.destFacId);
       if (!svc) continue;
       lines.push('');
-      lines.push(`— ${svc.name} (${t.verKey.toUpperCase()}) → ${dest?.name ?? '—'} —`);
-      const qs = t.getActiveCardQs(item.svcId, t.verKey, item.destFacId);
+      lines.push(`— ${svc.name}${t.callTypeName ? ` (${t.callTypeName})` : ''} → ${dest?.name ?? '—'} —`);
+      const qs = t.getActiveCardQs(item.svcId, t.callTypeId, item.destFacId);
       const preAnswers: Record<string, string> = {};
       for (const q of qs) {
         const key = `${item.svcId}:${q.id}`;
@@ -136,7 +134,7 @@ export function ResultPage() {
         preAnswers[q.id] = a;
         lines.push(`  • ${q.text}: ${a || '—'}`);
       }
-      const steps = t.getActiveCardSteps(item.svcId, t.verKey, item.destFacId, preAnswers);
+      const steps = t.getActiveCardSteps(item.svcId, t.callTypeId, item.destFacId, preAnswers);
       for (const s of steps) {
         lines.push(`  → ${s.text}`);
       }
@@ -213,10 +211,7 @@ export function ResultPage() {
         <p className="text-sm text-slate-500 flex flex-wrap items-center gap-2">
           <Badge tone="blue">{t.activeWorkflow?.name ?? '—'}</Badge>
           <span>{t.sendingFacility?.name ?? '—'} → {t.destFacility?.name ?? '—'}</span>
-          {t.hasTriageQuestion && (
-            <Badge tone={t.verKey === 'llto' ? 'green' : 'red'}>{t.verKey.toUpperCase()}</Badge>
-          )}
-          {t.psKey.endsWith('Yes') && <Badge tone="amber">Outside PTN</Badge>}
+          {t.callTypeName && <Badge tone="green">{t.callTypeName}</Badge>}
         </p>
       </div>
 
@@ -239,14 +234,14 @@ export function ResultPage() {
                 const svc = specialty.find((s) => s.id === item.svcId);
                 const dest = facilities.find((f) => f.id === item.destFacId);
                 if (!svc) return null;
-                const qs = t.getActiveCardQs(item.svcId, t.verKey, item.destFacId);
+                const qs = t.getActiveCardQs(item.svcId, t.callTypeId, item.destFacId);
                 const preAnswers: Record<string, string> = {};
                 for (const q of qs) {
                   preAnswers[q.id] = t.acStates[`${item.svcId}:${q.id}`] ?? '';
                 }
                 const steps = t.getActiveCardSteps(
                   item.svcId,
-                  t.verKey,
+                  t.callTypeId,
                   item.destFacId,
                   preAnswers
                 );
@@ -256,9 +251,9 @@ export function ResultPage() {
                     title={
                       <span className="flex items-center gap-2">
                         <span>{svc.name}</span>
-                        <Badge tone={t.verKey === 'llto' ? 'green' : 'red'}>
-                          {t.verKey.toUpperCase()}
-                        </Badge>
+                        {t.callTypeName && (
+                          <Badge tone="blue">{t.callTypeName}</Badge>
+                        )}
                       </span>
                     }
                     description={`Destination: ${dest?.name ?? '—'}`}
@@ -288,7 +283,7 @@ export function ResultPage() {
             </div>
           )}
 
-          <Card title="Generic process steps" description={t.hasTriageQuestion ? `Bucket: ${t.psKey}` : undefined}>
+          <Card title="Generic process steps">
             {t.activeProcessSteps.length === 0 ? (
               <div className="text-sm text-slate-400">None configured for this workflow.</div>
             ) : (

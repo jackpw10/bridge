@@ -1,6 +1,8 @@
 import { create } from 'zustand';
 import type {
+  CallType,
   CardOverride,
+  CardOverridePart,
   Diagnosis,
   Facility,
   HealthAuthority,
@@ -17,10 +19,10 @@ import {
   type FacilityRow,
   type LegacyWorkflowRow,
   type NotificationRow,
-  type ProcessStepsRow,
   type ReferenceCardRow,
   type SpecialtyServiceRow,
   type WorkflowRow,
+  callTypeFromRow,
   facilityFromRow,
   facilityToRow,
   svcFromRow,
@@ -29,7 +31,6 @@ import {
   dxToRow,
   workflowFromRow,
   workflowToRow,
-  psFromRow,
   ovFromRow,
   ovToRow,
   haFromRow,
@@ -40,6 +41,7 @@ import {
   notifToRow,
 } from '../lib/dbMappers';
 import {
+  defaultCallTypes,
   defaultDiagnoses,
   defaultFacilities,
   defaultHealthAuthorities,
@@ -57,6 +59,7 @@ interface AppState {
   loading: boolean;
   error: string | null;
 
+  callTypes: CallType[];
   workflows: Workflow[];
   facilities: Facility[];
   specialty: SpecialtyService[];
@@ -69,6 +72,7 @@ interface AppState {
 
   setSession: (s: AppSession | null) => void;
 
+  setCallTypes: (next: CallType[]) => Promise<void>;
   setWorkflows: (next: Workflow[]) => Promise<void>;
   setFacilities: (next: Facility[]) => Promise<void>;
   setSpecialty: (next: SpecialtyService[]) => Promise<void>;
@@ -86,6 +90,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   loading: true,
   error: null,
 
+  callTypes: [],
   workflows: [],
   facilities: [],
   specialty: [],
@@ -98,6 +103,11 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   setSession: (s) => set({ session: s }),
 
+  setCallTypes: async (next) => {
+    const prev = get().callTypes;
+    set({ callTypes: next });
+    await diffSyncList(prev, next, 'call_types');
+  },
   setWorkflows: async (next) => {
     const prev = get().workflows;
     set({ workflows: next });
@@ -110,11 +120,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   setFacilities: async (next) => {
     const prev = get().facilities;
     set({ facilities: next });
-    await diffSyncList(
-      prev.map(facilityToRow),
-      next.map(facilityToRow),
-      'facilities'
-    );
+    await diffSyncList(prev.map(facilityToRow), next.map(facilityToRow), 'facilities');
   },
   setSpecialty: async (next) => {
     const prev = get().specialty;
@@ -184,9 +190,188 @@ async function diffSyncList<R extends { id: string }>(
   }
 }
 
-// Seed defaults when a fresh DB is detected.
+// =========================================================================
+// MIGRATION: convert existing data to the new call-type-based shape.
+// Runs once before the initial fetch.
+// =========================================================================
+async function migrateToCallTypes() {
+  // 1) Seed call_types if empty.
+  const { count: ctCount } = await supabase
+    .from('call_types')
+    .select('id', { count: 'exact', head: true });
+  if ((ctCount ?? 0) === 0) {
+    await supabase.from('call_types').insert(defaultCallTypes);
+  }
+
+  // 2) Specialty services: if a row has empty `templates` JSON and has the
+  // legacy `template` JSON with llto/hloc keys, copy it across.
+  const { data: svcs } = await supabase
+    .from('specialty_services')
+    .select('id, template, templates');
+  for (const s of (svcs ?? []) as Array<{ id: string; template: unknown; templates: unknown }>) {
+    const tpls = (s.templates as Record<string, unknown>) ?? {};
+    if (Object.keys(tpls).length > 0) continue;
+    const legacy = (s.template as { llto?: unknown; hloc?: unknown } | null) ?? null;
+    if (!legacy) continue;
+    const newTemplates: Record<string, unknown> = {};
+    if (legacy.llto) newTemplates['ct_llto'] = legacy.llto;
+    if (legacy.hloc) newTemplates['ct_hloc'] = legacy.hloc;
+    if (Object.keys(newTemplates).length === 0) continue;
+    await supabase
+      .from('specialty_services')
+      .update({ templates: newTemplates })
+      .eq('id', s.id);
+  }
+
+  // 3) Card overrides: if `parts` is empty, copy from `llto` + `hloc` columns.
+  const { data: ovs } = await supabase
+    .from('card_overrides')
+    .select('id, llto, hloc, parts');
+  for (const o of (ovs ?? []) as Array<{ id: string; llto: unknown; hloc: unknown; parts: unknown }>) {
+    const parts = (o.parts as Record<string, unknown>) ?? {};
+    if (Object.keys(parts).length > 0) continue;
+    const newParts: Record<string, CardOverridePart> = {};
+    if (o.llto) newParts['ct_llto'] = o.llto as CardOverridePart;
+    if (o.hloc) newParts['ct_hloc'] = o.hloc as CardOverridePart;
+    if (Object.keys(newParts).length === 0) continue;
+    await supabase
+      .from('card_overrides')
+      .update({ parts: newParts })
+      .eq('id', o.id);
+  }
+
+  // 4) Workflows: assign call_type_id if missing. Also strip 'triage' special
+  // behavior (the question stays but won't drive versions) and flatten old
+  // 4-bucket process steps to a flat list with conditions.
+  const { data: wfs } = await supabase
+    .from('workflows')
+    .select('id, call_type_id, questions, post_triage, process_steps');
+  for (const w of (wfs ?? []) as Array<{
+    id: string;
+    call_type_id: string;
+    questions: unknown;
+    post_triage: unknown;
+    process_steps: unknown;
+  }>) {
+    let dirty = false;
+    const update: Record<string, unknown> = {};
+
+    if (!w.call_type_id) {
+      // Default to LLTO if questions include a 'triage' question — that's the
+      // most common case (the old "High Acuity Workflow").
+      update.call_type_id = 'ct_llto';
+      dirty = true;
+    }
+
+    // Flatten 4-bucket process steps to a flat array with conditions, but
+    // only if process_steps is currently shaped like the old 4-bucket object.
+    const ps = w.process_steps as
+      | { lltoNo?: unknown[]; lltoYes?: unknown[]; hlocNo?: unknown[]; hlocYes?: unknown[] }
+      | unknown[];
+    if (!Array.isArray(ps) && ps && typeof ps === 'object') {
+      const pt = w.post_triage as { questions?: Array<{ id: string; drivesPtnBucket?: boolean }> } | null;
+      const driver = pt?.questions?.find((q) => q.drivesPtnBucket);
+      const flat: Array<Record<string, unknown>> = [];
+      for (const step of (ps.lltoNo ?? [])) flat.push(step as Record<string, unknown>);
+      for (const step of (ps.hlocNo ?? [])) flat.push(step as Record<string, unknown>);
+      if (driver) {
+        for (const step of (ps.lltoYes ?? [])) {
+          flat.push({ ...(step as Record<string, unknown>), condQid: driver.id, condVal: 'Yes' });
+        }
+        for (const step of (ps.hlocYes ?? [])) {
+          flat.push({ ...(step as Record<string, unknown>), condQid: driver.id, condVal: 'Yes' });
+        }
+      } else {
+        for (const step of (ps.lltoYes ?? [])) flat.push(step as Record<string, unknown>);
+        for (const step of (ps.hlocYes ?? [])) flat.push(step as Record<string, unknown>);
+      }
+      update.process_steps = flat;
+      dirty = true;
+    }
+
+    // Strip drivesPtnBucket from post-triage questions (no longer used).
+    const ptObj = w.post_triage as {
+      enabled?: boolean;
+      showServicePreQuestions?: boolean;
+      questions?: Array<{ drivesPtnBucket?: boolean } & Record<string, unknown>>;
+    } | null;
+    if (ptObj?.questions?.some((q) => q.drivesPtnBucket !== undefined)) {
+      update.post_triage = {
+        ...ptObj,
+        questions: ptObj.questions.map((q) => {
+          const copy = { ...q };
+          delete copy.drivesPtnBucket;
+          return copy;
+        }),
+      };
+      dirty = true;
+    }
+
+    if (dirty) {
+      await supabase.from('workflows').update(update).eq('id', w.id);
+    }
+  }
+
+  // 5) Facility notification requirements: convert {llto, hloc} booleans to callTypeIds.
+  const { data: facs } = await supabase
+    .from('facilities')
+    .select('id, notification_requirements');
+  for (const f of (facs ?? []) as Array<{ id: string; notification_requirements: unknown }>) {
+    const arr = (f.notification_requirements as Array<Record<string, unknown>>) ?? [];
+    let mutated = false;
+    const next = arr.map((nr) => {
+      if (nr.callTypeIds !== undefined) return nr;
+      const callTypeIds: string[] = [];
+      if (nr.llto === true) callTypeIds.push('ct_llto');
+      if (nr.hloc === true) callTypeIds.push('ct_hloc');
+      // If both llto+hloc were true, leave callTypeIds as [llto, hloc].
+      // If neither, leave empty (i.e. all call types).
+      mutated = true;
+      const copy: Record<string, unknown> = { ...nr, callTypeIds };
+      delete copy.llto;
+      delete copy.hloc;
+      return copy;
+    });
+    if (mutated) {
+      await supabase
+        .from('facilities')
+        .update({ notification_requirements: next })
+        .eq('id', f.id);
+    }
+  }
+
+  // 6) Specialty services' transportAdvisor cards: convert llto/hloc booleans to callTypeIds.
+  const { data: svcs2 } = await supabase
+    .from('specialty_services')
+    .select('id, transport_advisor');
+  for (const s of (svcs2 ?? []) as Array<{ id: string; transport_advisor: unknown }>) {
+    const ta = s.transport_advisor as
+      | { enabled?: boolean; cards?: Array<Record<string, unknown>> }
+      | null;
+    if (!ta?.cards) continue;
+    let mutated = false;
+    const cards = ta.cards.map((c) => {
+      if (c.callTypeIds !== undefined) return c;
+      const callTypeIds: string[] = [];
+      if (c.llto === true) callTypeIds.push('ct_llto');
+      if (c.hloc === true) callTypeIds.push('ct_hloc');
+      mutated = true;
+      const copy: Record<string, unknown> = { ...c, callTypeIds };
+      delete copy.llto;
+      delete copy.hloc;
+      return copy;
+    });
+    if (mutated) {
+      await supabase
+        .from('specialty_services')
+        .update({ transport_advisor: { ...ta, cards } })
+        .eq('id', s.id);
+    }
+  }
+}
+
 async function seedIfEmpty() {
-  // Workflows: if empty, try migrating from legacy singleton tables; otherwise seed defaults.
+  // Workflows: if empty, look for legacy data first; otherwise seed defaults.
   const { count: wfCount } = await supabase
     .from('workflows')
     .select('id', { count: 'exact', head: true });
@@ -196,16 +381,11 @@ async function seedIfEmpty() {
       .select('*')
       .eq('id', 'main')
       .maybeSingle();
-    const { data: legacyPs } = await supabase
-      .from('process_steps')
-      .select('*')
-      .eq('id', 'main')
-      .maybeSingle();
-
     if (legacyWf && (legacyWf as LegacyWorkflowRow).questions) {
-      const migrated: Workflow = {
+      const wf: Workflow = {
         id: 'wf_high_acuity',
         name: 'High Acuity Workflow',
+        callTypeId: 'ct_llto',
         questions: ((legacyWf as LegacyWorkflowRow).questions as Workflow['questions']) ?? [],
         postTriage: {
           enabled: true,
@@ -215,32 +395,28 @@ async function seedIfEmpty() {
               id: uid('ptq'),
               type: 'yesno',
               text: 'Was the patient accepted outside of PTN?',
-              drivesPtnBucket: true,
             },
           ],
         },
-        processSteps: legacyPs
-          ? psFromRow(legacyPs as ProcessStepsRow)
-          : { lltoNo: [], lltoYes: [], hlocNo: [], hlocYes: [] },
+        processSteps: [],
       };
-      await supabase.from('workflows').insert(workflowToRow(migrated, 0));
+      await supabase.from('workflows').insert(workflowToRow(wf, 0));
     } else {
-      // Fresh DB — seed the default workflows.
       await supabase
         .from('workflows')
         .insert(defaultWorkflows.map((w, i) => workflowToRow(w, i)));
     }
   }
 
-  // List tables — seed if empty.
   type Seedable<T> = {
     table: string;
     defaults: T[];
     toRow: (item: T) => unknown;
   };
   const seeds: Seedable<unknown>[] = [
-    { table: 'health_authorities', defaults: defaultHealthAuthorities, toRow: (x) => x } as Seedable<unknown>,
-    { table: 'specialty_services', defaults: defaultSpecialtyServices, toRow: (x) => svcToRow(x as SpecialtyService) } as Seedable<unknown>,
+    { table: 'call_types',         defaults: defaultCallTypes,          toRow: (x) => x } as Seedable<unknown>,
+    { table: 'health_authorities', defaults: defaultHealthAuthorities,  toRow: (x) => x } as Seedable<unknown>,
+    { table: 'specialty_services', defaults: defaultSpecialtyServices,  toRow: (x) => svcToRow(x as SpecialtyService) } as Seedable<unknown>,
     { table: 'facilities',         defaults: defaultFacilities,         toRow: (x) => facilityToRow(x as Facility) } as Seedable<unknown>,
     { table: 'diagnoses',          defaults: defaultDiagnoses,          toRow: (x) => dxToRow(x as Diagnosis) } as Seedable<unknown>,
     { table: 'override_reasons',   defaults: defaultOverrideReasons,    toRow: (x) => x } as Seedable<unknown>,
@@ -266,7 +442,9 @@ async function seedIfEmpty() {
 export async function loadAllData(): Promise<void> {
   try {
     await seedIfEmpty();
+    await migrateToCallTypes();
     const [
+      { data: ctRows },
       { data: wfRows },
       { data: facRows },
       { data: svcRows },
@@ -277,6 +455,7 @@ export async function loadAllData(): Promise<void> {
       { data: haRows },
       { data: notifRows },
     ] = await Promise.all([
+      supabase.from('call_types').select('*'),
       supabase.from('workflows').select('*').order('position'),
       supabase.from('facilities').select('*'),
       supabase.from('specialty_services').select('*'),
@@ -289,6 +468,7 @@ export async function loadAllData(): Promise<void> {
     ]);
 
     useAppStore.setState({
+      callTypes: (ctRows ?? []).map(callTypeFromRow),
       workflows: (wfRows as WorkflowRow[] | null ?? []).map(workflowFromRow),
       facilities: (facRows as FacilityRow[] | null ?? []).map(facilityFromRow),
       specialty: (svcRows as SpecialtyServiceRow[] | null ?? []).map(svcFromRow),
@@ -325,6 +505,9 @@ export function startRealtime() {
       const { data } = await supabase.from(table).select('*');
       const safeRows = data ?? [];
       switch (table) {
+        case 'call_types':
+          set({ callTypes: safeRows.map(callTypeFromRow) });
+          break;
         case 'facilities':
           set({ facilities: (safeRows as FacilityRow[]).map(facilityFromRow) });
           break;
@@ -352,6 +535,7 @@ export function startRealtime() {
 
   const tables = [
     'workflows',
+    'call_types',
     'facilities',
     'specialty_services',
     'diagnoses',

@@ -1,5 +1,5 @@
 import { Link, useNavigate, useParams } from 'react-router-dom';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useAppStore } from '../../store/appStore';
 import { Card } from '../../components/ui/Card';
 import { Button } from '../../components/ui/Button';
@@ -9,22 +9,29 @@ import { MultiSelect } from '../../components/ui/MultiSelect';
 import { DragList } from '../../components/ui/DragList';
 import type {
   ExceptionStep,
+  ServiceTemplate,
   SpecialtyService,
   TACard,
   TemplateQuestion,
-  VerKey,
 } from '../../types';
 import { uid } from '../../utils/id';
+
+const emptyTemplate = (): ServiceTemplate => ({ preQuestions: [], exceptionSteps: [] });
 
 export function AdminSpecialtyDetailPage() {
   const { id } = useParams<{ id: string }>();
   const services = useAppStore((s) => s.specialty);
   const setServices = useAppStore((s) => s.setSpecialty);
   const has = useAppStore((s) => s.healthAuthorities);
+  const callTypes = useAppStore((s) => s.callTypes);
   const nav = useNavigate();
 
   const svc = services.find((s) => s.id === id);
-  const [tab, setTab] = useState<VerKey>('llto');
+  const [tabCtId, setTabCtId] = useState<string>('');
+
+  useEffect(() => {
+    if (!tabCtId && callTypes.length > 0) setTabCtId(callTypes[0].id);
+  }, [callTypes, tabCtId]);
 
   if (!svc) {
     return (
@@ -34,59 +41,58 @@ export function AdminSpecialtyDetailPage() {
       </div>
     );
   }
-
   const svcRef: SpecialtyService = svc;
+
+  // Ensure the active tab's template exists in memory (without mutating storage).
+  const currentTpl: ServiceTemplate = svcRef.templates[tabCtId] ?? emptyTemplate();
 
   function patch(p: Partial<SpecialtyService>) {
     setServices(services.map((s) => (s.id === svcRef.id ? { ...s, ...p } : s)));
   }
 
-  function patchTemplate(key: VerKey, p: Partial<SpecialtyService['template'][VerKey]>) {
-    const next = {
-      ...svcRef.template,
-      [key]: { ...svcRef.template[key], ...p },
-    };
-    patch({ template: next });
+  function patchTemplate(ctId: string, p: Partial<ServiceTemplate>) {
+    const existing = svcRef.templates[ctId] ?? emptyTemplate();
+    patch({
+      templates: { ...svcRef.templates, [ctId]: { ...existing, ...p } },
+    });
   }
 
   function addQ() {
     const q: TemplateQuestion = { id: uid('tq'), type: 'yesno', text: 'New question' };
-    patchTemplate(tab, { preQuestions: [...svcRef.template[tab].preQuestions, q] });
+    patchTemplate(tabCtId, { preQuestions: [...currentTpl.preQuestions, q] });
   }
   function updQ(qid: string, patchQ: Partial<TemplateQuestion>) {
-    patchTemplate(tab, {
-      preQuestions: svcRef.template[tab].preQuestions.map((q) =>
-        q.id === qid ? { ...q, ...patchQ } : q
-      ),
+    patchTemplate(tabCtId, {
+      preQuestions: currentTpl.preQuestions.map((q) => (q.id === qid ? { ...q, ...patchQ } : q)),
     });
   }
   function removeQ(qid: string) {
-    patchTemplate(tab, {
-      preQuestions: svcRef.template[tab].preQuestions.filter((q) => q.id !== qid),
+    patchTemplate(tabCtId, {
+      preQuestions: currentTpl.preQuestions.filter((q) => q.id !== qid),
     });
   }
   function reorderQs(next: TemplateQuestion[]) {
-    patchTemplate(tab, { preQuestions: next });
+    patchTemplate(tabCtId, { preQuestions: next });
   }
 
   function addS() {
     const s: ExceptionStep = { id: uid('ts'), text: 'New step' };
-    patchTemplate(tab, { exceptionSteps: [...svcRef.template[tab].exceptionSteps, s] });
+    patchTemplate(tabCtId, { exceptionSteps: [...currentTpl.exceptionSteps, s] });
   }
   function updS(sid: string, patchS: Partial<ExceptionStep>) {
-    patchTemplate(tab, {
-      exceptionSteps: svcRef.template[tab].exceptionSteps.map((s) =>
+    patchTemplate(tabCtId, {
+      exceptionSteps: currentTpl.exceptionSteps.map((s) =>
         s.id === sid ? { ...s, ...patchS } : s
       ),
     });
   }
   function removeS(sid: string) {
-    patchTemplate(tab, {
-      exceptionSteps: svcRef.template[tab].exceptionSteps.filter((s) => s.id !== sid),
+    patchTemplate(tabCtId, {
+      exceptionSteps: currentTpl.exceptionSteps.filter((s) => s.id !== sid),
     });
   }
   function reorderS(next: ExceptionStep[]) {
-    patchTemplate(tab, { exceptionSteps: next });
+    patchTemplate(tabCtId, { exceptionSteps: next });
   }
 
   // ---------- Transport Advisor ----------
@@ -98,20 +104,17 @@ export function AdminSpecialtyDetailPage() {
     const card: TACard = {
       id: uid('tac'),
       name: 'New TA card',
-      llto: true,
-      hloc: false,
+      callTypeIds: [],
       haIds: [],
       steps: [],
     };
     patchTA({ cards: [...svcRef.transportAdvisor.cards, card] });
   }
-
   function updateTaCard(cid: string, p: Partial<TACard>) {
     patchTA({
       cards: svcRef.transportAdvisor.cards.map((c) => (c.id === cid ? { ...c, ...p } : c)),
     });
   }
-
   function removeTaCard(cid: string) {
     if (!window.confirm('Delete this TA card?')) return;
     patchTA({ cards: svcRef.transportAdvisor.cards.filter((c) => c.id !== cid) });
@@ -137,92 +140,102 @@ export function AdminSpecialtyDetailPage() {
         <Input label="Name" value={svc.name} onChange={(e) => patch({ name: e.target.value })} />
       </Card>
 
-      <Card>
-        <div className="flex gap-2 border-b border-slate-200 mb-4">
-          {(['llto', 'hloc'] as VerKey[]).map((v) => (
-            <button
-              key={v}
-              type="button"
-              className={`px-3 py-2 text-sm font-medium border-b-2 ${tab === v ? 'border-brand-600 text-brand-700' : 'border-transparent text-slate-500'}`}
-              onClick={() => setTab(v)}
-            >
-              {v.toUpperCase()}
-            </button>
-          ))}
-        </div>
-
-        <section className="space-y-6">
-          <div>
-            <div className="flex items-center justify-between mb-2">
-              <h3 className="font-semibold text-slate-700">Pre-questions</h3>
-              <Button size="sm" onClick={addQ}>+ Add</Button>
+      <Card title="Action card templates" description="Per call-type pre-questions and exception steps. Each call type tab is independent.">
+        {callTypes.length === 0 ? (
+          <div className="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded p-2">
+            No call types defined yet. Add some in{' '}
+            <Link to="/admin/call-types" className="underline">Admin → Call Types</Link>{' '}
+            first.
+          </div>
+        ) : (
+          <>
+            <div className="flex flex-wrap gap-2 border-b border-slate-200 mb-4">
+              {callTypes.map((ct) => (
+                <button
+                  key={ct.id}
+                  type="button"
+                  onClick={() => setTabCtId(ct.id)}
+                  className={`px-3 py-2 text-sm font-medium border-b-2 ${tabCtId === ct.id ? 'border-brand-600 text-brand-700' : 'border-transparent text-slate-500'}`}
+                >
+                  {ct.name}
+                </button>
+              ))}
             </div>
-            <DragList
-              items={svc.template[tab].preQuestions}
-              onReorder={reorderQs}
-              renderItem={(q, handle) => (
-                <div className="border rounded-md p-3 bg-white">
-                  <div className="flex items-start gap-2">
-                    {handle}
-                    <div className="flex-1 space-y-2">
-                      <Input value={q.text} onChange={(e) => updQ(q.id, { text: e.target.value })} />
-                      <div className="grid grid-cols-2 gap-2">
-                        <Select value={q.type} onChange={(e) => updQ(q.id, { type: e.target.value as TemplateQuestion['type'] })}>
-                          <option value="yesno">Yes / No</option>
-                          <option value="dropdown">Dropdown</option>
-                        </Select>
-                        {q.type === 'dropdown' && (
-                          <Input
-                            placeholder="opt1|opt2"
-                            value={(q.options ?? []).join('|')}
-                            onChange={(e) => updQ(q.id, { options: e.target.value.split('|').map((x) => x.trim()).filter(Boolean) })}
-                          />
-                        )}
+
+            <section className="space-y-6">
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <h3 className="font-semibold text-slate-700">Pre-questions</h3>
+                  <Button size="sm" onClick={addQ}>+ Add</Button>
+                </div>
+                <DragList
+                  items={currentTpl.preQuestions}
+                  onReorder={reorderQs}
+                  renderItem={(q, handle) => (
+                    <div className="border rounded-md p-3 bg-white">
+                      <div className="flex items-start gap-2">
+                        {handle}
+                        <div className="flex-1 space-y-2">
+                          <Input value={q.text} onChange={(e) => updQ(q.id, { text: e.target.value })} />
+                          <div className="grid grid-cols-2 gap-2">
+                            <Select value={q.type} onChange={(e) => updQ(q.id, { type: e.target.value as TemplateQuestion['type'] })}>
+                              <option value="yesno">Yes / No</option>
+                              <option value="dropdown">Dropdown</option>
+                            </Select>
+                            {q.type === 'dropdown' && (
+                              <Input
+                                placeholder="opt1|opt2"
+                                value={(q.options ?? []).join('|')}
+                                onChange={(e) => updQ(q.id, { options: e.target.value.split('|').map((x) => x.trim()).filter(Boolean) })}
+                              />
+                            )}
+                          </div>
+                        </div>
+                        <Button size="sm" variant="ghost" onClick={() => removeQ(q.id)}>Delete</Button>
                       </div>
                     </div>
-                    <Button size="sm" variant="ghost" onClick={() => removeQ(q.id)}>Delete</Button>
-                  </div>
-                </div>
-              )}
-            />
-          </div>
+                  )}
+                />
+              </div>
 
-          <div>
-            <div className="flex items-center justify-between mb-2">
-              <h3 className="font-semibold text-slate-700">Exception steps</h3>
-              <Button size="sm" onClick={addS}>+ Add</Button>
-            </div>
-            <DragList
-              items={svc.template[tab].exceptionSteps}
-              onReorder={reorderS}
-              renderItem={(s, handle) => (
-                <div className="border rounded-md p-3 bg-white">
-                  <div className="flex items-start gap-2">
-                    {handle}
-                    <div className="flex-1 space-y-2">
-                      <Textarea value={s.text} onChange={(e) => updS(s.id, { text: e.target.value })} />
-                      <div className="grid grid-cols-2 gap-2">
-                        <Select value={s.condQid ?? ''} onChange={(e) => updS(s.id, { condQid: e.target.value || undefined })}>
-                          <option value="">— unconditional —</option>
-                          {svc.template[tab].preQuestions.map((q) => (
-                            <option key={q.id} value={q.id}>{q.text}</option>
-                          ))}
-                        </Select>
-                        <Input placeholder="when answer = …" value={s.condVal ?? ''} onChange={(e) => updS(s.id, { condVal: e.target.value || undefined })} />
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <h3 className="font-semibold text-slate-700">Exception steps</h3>
+                  <Button size="sm" onClick={addS}>+ Add</Button>
+                </div>
+                <DragList
+                  items={currentTpl.exceptionSteps}
+                  onReorder={reorderS}
+                  renderItem={(s, handle) => (
+                    <div className="border rounded-md p-3 bg-white">
+                      <div className="flex items-start gap-2">
+                        {handle}
+                        <div className="flex-1 space-y-2">
+                          <Textarea value={s.text} onChange={(e) => updS(s.id, { text: e.target.value })} />
+                          <div className="grid grid-cols-2 gap-2">
+                            <Select value={s.condQid ?? ''} onChange={(e) => updS(s.id, { condQid: e.target.value || undefined })}>
+                              <option value="">— unconditional —</option>
+                              {currentTpl.preQuestions.map((q) => (
+                                <option key={q.id} value={q.id}>{q.text}</option>
+                              ))}
+                            </Select>
+                            <Input placeholder="when answer = …" value={s.condVal ?? ''} onChange={(e) => updS(s.id, { condVal: e.target.value || undefined })} />
+                          </div>
+                        </div>
+                        <Button size="sm" variant="ghost" onClick={() => removeS(s.id)}>Delete</Button>
                       </div>
                     </div>
-                    <Button size="sm" variant="ghost" onClick={() => removeS(s.id)}>Delete</Button>
-                  </div>
-                </div>
-              )}
-            />
-          </div>
-        </section>
+                  )}
+                />
+              </div>
+            </section>
+          </>
+        )}
       </Card>
 
       <Card
         title="Transport Advisor"
-        description="Cards shown after the referral question. A card fires when its version matches the case AND its HA list includes the destination facility's HA."
+        description="Cards shown after the referral question. Card fires when the case's call type AND destination HA both match."
         actions={
           svc.transportAdvisor.enabled ? (
             <Button size="sm" onClick={addTaCard}>+ Add card</Button>
@@ -240,8 +253,13 @@ export function AdminSpecialtyDetailPage() {
             {has.length === 0 && (
               <div className="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded p-2">
                 No Health Authorities exist yet. Add one in{' '}
-                <Link to="/admin/health-authorities" className="underline">Admin → Health Authorities</Link>{' '}
-                before assigning cards.
+                <Link to="/admin/health-authorities" className="underline">Admin → Health Authorities</Link>.
+              </div>
+            )}
+            {callTypes.length === 0 && (
+              <div className="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded p-2">
+                No call types defined yet. Add one in{' '}
+                <Link to="/admin/call-types" className="underline">Admin → Call Types</Link>.
               </div>
             )}
 
@@ -262,18 +280,12 @@ export function AdminSpecialtyDetailPage() {
                     <Button size="sm" variant="ghost" onClick={() => removeTaCard(card.id)}>Delete card</Button>
                   </div>
 
-                  <div className="flex gap-4">
-                    <Toggle
-                      checked={card.llto}
-                      onChange={(v) => updateTaCard(card.id, { llto: v })}
-                      label="LLTO"
-                    />
-                    <Toggle
-                      checked={card.hloc}
-                      onChange={(v) => updateTaCard(card.id, { hloc: v })}
-                      label="HLOC"
-                    />
-                  </div>
+                  <MultiSelect
+                    label="Applies when case's call type is one of"
+                    options={callTypes.map((c) => ({ value: c.id, label: c.name }))}
+                    value={card.callTypeIds}
+                    onChange={(v) => updateTaCard(card.id, { callTypeIds: v })}
+                  />
 
                   <MultiSelect
                     label="Applies when destination HA is one of"
@@ -330,9 +342,9 @@ export function AdminSpecialtyDetailPage() {
                     />
                   </div>
 
-                  {!card.llto && !card.hloc && (
+                  {card.callTypeIds.length === 0 && (
                     <div className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded p-2">
-                      This card has neither LLTO nor HLOC enabled — it will never fire.
+                      No call types selected — this card will never fire.
                     </div>
                   )}
                   {card.haIds.length === 0 && (

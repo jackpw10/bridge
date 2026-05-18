@@ -1,11 +1,11 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { useAppStore } from '../../store/appStore';
 import type {
   CardOverride,
   CardOverridePart,
   ExceptionStep,
   SpecialtyService,
   TemplateQuestion,
-  VerKey,
 } from '../../types';
 import { Modal } from '../ui/Modal';
 import { Button } from '../ui/Button';
@@ -42,26 +42,34 @@ export function CardOverrideModal({
   onClose,
   onSave,
 }: Props) {
-  const [tab, setTab] = useState<VerKey>('llto');
+  const callTypes = useAppStore((s) => s.callTypes);
+
+  const [tabCtId, setTabCtId] = useState<string>('');
   const [draft, setDraft] = useState<CardOverride>(
     override ?? {
       id: uid('ov'),
       facilityId,
       svcId: service.id,
-      llto: emptyPart(),
-      hloc: emptyPart(),
+      parts: {},
     }
   );
 
-  const part = draft[tab];
-  const templateQs = service.template[tab].preQuestions;
-  const templateSteps = service.template[tab].exceptionSteps;
+  useEffect(() => {
+    if (!tabCtId && callTypes.length > 0) setTabCtId(callTypes[0].id);
+  }, [callTypes, tabCtId]);
+
+  const part: CardOverridePart = draft.parts[tabCtId] ?? emptyPart();
+  const tpl = service.templates[tabCtId] ?? { preQuestions: [], exceptionSteps: [] };
+  const templateQs = tpl.preQuestions;
+  const templateSteps = tpl.exceptionSteps;
 
   function patchPart(p: Partial<CardOverridePart>) {
-    setDraft((d) => ({ ...d, [tab]: { ...d[tab], ...p } }));
+    setDraft((d) => ({
+      ...d,
+      parts: { ...d.parts, [tabCtId]: { ...part, ...p } },
+    }));
   }
 
-  // Build unified, ordered lists (template + added), honoring qOrder/sOrder
   const orderedQs: Array<TemplateQuestion & { isCustom: boolean }> = useMemo(() => {
     const all: Array<TemplateQuestion & { isCustom: boolean }> = [
       ...templateQs.map((q) => ({ ...q, isCustom: false })),
@@ -72,10 +80,7 @@ export function CardOverrideModal({
     const out: typeof all = [];
     for (const id of part.qOrder) {
       const q = map.get(id);
-      if (q) {
-        out.push(q);
-        map.delete(id);
-      }
+      if (q) { out.push(q); map.delete(id); }
     }
     for (const q of map.values()) out.push(q);
     return out;
@@ -91,10 +96,7 @@ export function CardOverrideModal({
     const out: typeof all = [];
     for (const id of part.sOrder) {
       const s = map.get(id);
-      if (s) {
-        out.push(s);
-        map.delete(id);
-      }
+      if (s) { out.push(s); map.delete(id); }
     }
     for (const s of map.values()) out.push(s);
     return out;
@@ -161,145 +163,153 @@ export function CardOverrideModal({
         </>
       }
     >
-      <div className="flex gap-2 border-b border-slate-200 mb-4">
-        {(['llto', 'hloc'] as VerKey[]).map((v) => (
-          <button
-            key={v}
-            type="button"
-            className={`px-3 py-2 text-sm font-medium border-b-2 ${
-              tab === v ? 'border-brand-600 text-brand-700' : 'border-transparent text-slate-500'
-            }`}
-            onClick={() => setTab(v)}
-          >
-            {v.toUpperCase()}
-          </button>
-        ))}
-      </div>
-
-      <div className="grid md:grid-cols-2 gap-6">
-        <div>
-          <div className="flex items-center justify-between mb-2">
-            <h4 className="font-semibold text-slate-700">Questions</h4>
-            <Button size="sm" variant="secondary" onClick={addCustomQ}>+ Add custom</Button>
+      {callTypes.length === 0 ? (
+        <div className="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded p-2">
+          No call types defined. Add at least one in Admin → Call Types.
+        </div>
+      ) : (
+        <>
+          <div className="flex flex-wrap gap-2 border-b border-slate-200 mb-4">
+            {callTypes.map((ct) => (
+              <button
+                key={ct.id}
+                type="button"
+                className={`px-3 py-2 text-sm font-medium border-b-2 ${
+                  tabCtId === ct.id ? 'border-brand-600 text-brand-700' : 'border-transparent text-slate-500'
+                }`}
+                onClick={() => setTabCtId(ct.id)}
+              >
+                {ct.name}
+              </button>
+            ))}
           </div>
-          <DragList
-            items={orderedQs}
-            onReorder={reorderQs}
-            renderItem={(q, handle) => {
-              const deactivated = part.deactivated.includes(q.id);
-              return (
-                <div className={`border rounded-md p-3 ${q.isCustom ? 'bg-slate-50 border-slate-200' : 'bg-blue-50 border-blue-200'} ${deactivated ? 'opacity-50' : ''}`}>
-                  <div className="flex items-start gap-2">
-                    {handle}
-                    <div className="flex-1 space-y-2">
-                      <div className="flex items-center gap-2">
-                        <Badge tone={q.isCustom ? 'slate' : 'blue'}>
-                          {q.isCustom ? 'CUSTOM' : 'TEMPLATE'}
-                        </Badge>
-                        {!q.isCustom && (
-                          <Toggle
-                            checked={!deactivated}
-                            onChange={() => toggleDeactivated(q.id)}
-                            label={deactivated ? 'Inactive' : 'Active'}
-                          />
-                        )}
-                      </div>
-                      {q.isCustom ? (
-                        <>
-                          <Input value={q.text} onChange={(e) => updateAddedQ(q.id, { text: e.target.value })} />
-                          <div className="grid grid-cols-2 gap-2">
-                            <Select value={q.type} onChange={(e) => updateAddedQ(q.id, { type: e.target.value as TemplateQuestion['type'] })}>
-                              <option value="yesno">Yes / No</option>
-                              <option value="dropdown">Dropdown</option>
-                            </Select>
-                            {q.type === 'dropdown' && (
-                              <Input
-                                placeholder="opt1|opt2|opt3"
-                                value={(q.options ?? []).join('|')}
-                                onChange={(e) =>
-                                  updateAddedQ(q.id, {
-                                    options: e.target.value.split('|').map((s) => s.trim()).filter(Boolean),
-                                  })
-                                }
+
+          <div className="grid md:grid-cols-2 gap-6">
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <h4 className="font-semibold text-slate-700">Questions</h4>
+                <Button size="sm" variant="secondary" onClick={addCustomQ}>+ Add custom</Button>
+              </div>
+              <DragList
+                items={orderedQs}
+                onReorder={reorderQs}
+                renderItem={(q, handle) => {
+                  const deactivated = part.deactivated.includes(q.id);
+                  return (
+                    <div className={`border rounded-md p-3 ${q.isCustom ? 'bg-slate-50 border-slate-200' : 'bg-blue-50 border-blue-200'} ${deactivated ? 'opacity-50' : ''}`}>
+                      <div className="flex items-start gap-2">
+                        {handle}
+                        <div className="flex-1 space-y-2">
+                          <div className="flex items-center gap-2">
+                            <Badge tone={q.isCustom ? 'slate' : 'blue'}>
+                              {q.isCustom ? 'CUSTOM' : 'TEMPLATE'}
+                            </Badge>
+                            {!q.isCustom && (
+                              <Toggle
+                                checked={!deactivated}
+                                onChange={() => toggleDeactivated(q.id)}
+                                label={deactivated ? 'Inactive' : 'Active'}
                               />
                             )}
                           </div>
-                          <Button size="sm" variant="ghost" onClick={() => removeAddedQ(q.id)}>Delete custom question</Button>
-                        </>
-                      ) : (
-                        <div className="text-sm text-slate-700">{q.text}</div>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              );
-            }}
-          />
-        </div>
-
-        <div>
-          <div className="flex items-center justify-between mb-2">
-            <h4 className="font-semibold text-slate-700">Steps</h4>
-            <Button size="sm" variant="secondary" onClick={addCustomS}>+ Add custom</Button>
-          </div>
-          <DragList
-            items={orderedSteps}
-            onReorder={reorderSteps}
-            renderItem={(s, handle) => {
-              const deactivated = part.deactivated.includes(s.id);
-              return (
-                <div className={`border rounded-md p-3 ${s.isCustom ? 'bg-slate-50 border-slate-200' : 'bg-blue-50 border-blue-200'} ${deactivated ? 'opacity-50' : ''}`}>
-                  <div className="flex items-start gap-2">
-                    {handle}
-                    <div className="flex-1 space-y-2">
-                      <div className="flex items-center gap-2">
-                        <Badge tone={s.isCustom ? 'slate' : 'blue'}>
-                          {s.isCustom ? 'CUSTOM' : 'TEMPLATE'}
-                        </Badge>
-                        {!s.isCustom && (
-                          <Toggle
-                            checked={!deactivated}
-                            onChange={() => toggleDeactivated(s.id)}
-                            label={deactivated ? 'Inactive' : 'Active'}
-                          />
-                        )}
+                          {q.isCustom ? (
+                            <>
+                              <Input value={q.text} onChange={(e) => updateAddedQ(q.id, { text: e.target.value })} />
+                              <div className="grid grid-cols-2 gap-2">
+                                <Select value={q.type} onChange={(e) => updateAddedQ(q.id, { type: e.target.value as TemplateQuestion['type'] })}>
+                                  <option value="yesno">Yes / No</option>
+                                  <option value="dropdown">Dropdown</option>
+                                </Select>
+                                {q.type === 'dropdown' && (
+                                  <Input
+                                    placeholder="opt1|opt2|opt3"
+                                    value={(q.options ?? []).join('|')}
+                                    onChange={(e) =>
+                                      updateAddedQ(q.id, {
+                                        options: e.target.value.split('|').map((s) => s.trim()).filter(Boolean),
+                                      })
+                                    }
+                                  />
+                                )}
+                              </div>
+                              <Button size="sm" variant="ghost" onClick={() => removeAddedQ(q.id)}>Delete custom question</Button>
+                            </>
+                          ) : (
+                            <div className="text-sm text-slate-700">{q.text}</div>
+                          )}
+                        </div>
                       </div>
-                      {s.isCustom ? (
-                        <>
-                          <Textarea value={s.text} onChange={(e) => updateAddedS(s.id, { text: e.target.value })} />
-                          <div className="grid grid-cols-2 gap-2">
-                            <Select value={s.condQid ?? ''} onChange={(e) => updateAddedS(s.id, { condQid: e.target.value || undefined })}>
-                              <option value="">— unconditional —</option>
-                              {orderedQs.map((q) => (
-                                <option key={q.id} value={q.id}>{q.text}</option>
-                              ))}
-                            </Select>
-                            <Input
-                              placeholder="when answer = …"
-                              value={s.condVal ?? ''}
-                              onChange={(e) => updateAddedS(s.id, { condVal: e.target.value || undefined })}
-                            />
+                    </div>
+                  );
+                }}
+              />
+            </div>
+
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <h4 className="font-semibold text-slate-700">Steps</h4>
+                <Button size="sm" variant="secondary" onClick={addCustomS}>+ Add custom</Button>
+              </div>
+              <DragList
+                items={orderedSteps}
+                onReorder={reorderSteps}
+                renderItem={(s, handle) => {
+                  const deactivated = part.deactivated.includes(s.id);
+                  return (
+                    <div className={`border rounded-md p-3 ${s.isCustom ? 'bg-slate-50 border-slate-200' : 'bg-blue-50 border-blue-200'} ${deactivated ? 'opacity-50' : ''}`}>
+                      <div className="flex items-start gap-2">
+                        {handle}
+                        <div className="flex-1 space-y-2">
+                          <div className="flex items-center gap-2">
+                            <Badge tone={s.isCustom ? 'slate' : 'blue'}>
+                              {s.isCustom ? 'CUSTOM' : 'TEMPLATE'}
+                            </Badge>
+                            {!s.isCustom && (
+                              <Toggle
+                                checked={!deactivated}
+                                onChange={() => toggleDeactivated(s.id)}
+                                label={deactivated ? 'Inactive' : 'Active'}
+                              />
+                            )}
                           </div>
-                          <Button size="sm" variant="ghost" onClick={() => removeAddedS(s.id)}>Delete custom step</Button>
-                        </>
-                      ) : (
-                        <div className="text-sm text-slate-700">
-                          <div>{s.text}</div>
-                          {s.condQid && (
-                            <div className="text-xs text-slate-500 mt-1">
-                              when {s.condQid} = "{s.condVal}"
+                          {s.isCustom ? (
+                            <>
+                              <Textarea value={s.text} onChange={(e) => updateAddedS(s.id, { text: e.target.value })} />
+                              <div className="grid grid-cols-2 gap-2">
+                                <Select value={s.condQid ?? ''} onChange={(e) => updateAddedS(s.id, { condQid: e.target.value || undefined })}>
+                                  <option value="">— unconditional —</option>
+                                  {orderedQs.map((q) => (
+                                    <option key={q.id} value={q.id}>{q.text}</option>
+                                  ))}
+                                </Select>
+                                <Input
+                                  placeholder="when answer = …"
+                                  value={s.condVal ?? ''}
+                                  onChange={(e) => updateAddedS(s.id, { condVal: e.target.value || undefined })}
+                                />
+                              </div>
+                              <Button size="sm" variant="ghost" onClick={() => removeAddedS(s.id)}>Delete custom step</Button>
+                            </>
+                          ) : (
+                            <div className="text-sm text-slate-700">
+                              <div>{s.text}</div>
+                              {s.condQid && (
+                                <div className="text-xs text-slate-500 mt-1">
+                                  when {s.condQid} = "{s.condVal}"
+                                </div>
+                              )}
                             </div>
                           )}
                         </div>
-                      )}
+                      </div>
                     </div>
-                  </div>
-                </div>
-              );
-            }}
-          />
-        </div>
-      </div>
+                  );
+                }}
+              />
+            </div>
+          </div>
+        </>
+      )}
     </Modal>
   );
 }

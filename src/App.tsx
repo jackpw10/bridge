@@ -23,6 +23,7 @@ import { AdminReasonsPage } from './pages/admin/AdminReasons';
 import { AdminReferenceCardsPage } from './pages/admin/AdminReferenceCards';
 import { AdminUsersPage } from './pages/admin/AdminUsers';
 import { AdminHealthAuthoritiesPage } from './pages/admin/AdminHealthAuthorities';
+import { AdminCallTypesPage } from './pages/admin/AdminCallTypes';
 import { useNotificationPoll } from './hooks/useNotificationPoll';
 import './App.css';
 
@@ -108,6 +109,14 @@ export default function App() {
           element={
             <RequireAdmin>
               <AdminHealthAuthoritiesPage />
+            </RequireAdmin>
+          }
+        />
+        <Route
+          path="/admin/call-types"
+          element={
+            <RequireAdmin>
+              <AdminCallTypesPage />
             </RequireAdmin>
           }
         />

@@ -1,9 +1,9 @@
 import type {
+  CallType,
   Diagnosis,
   Facility,
   HealthAuthority,
   OverrideReason,
-  ProcessSteps,
   ReferenceCard,
   SpecialtyService,
   Workflow,
@@ -11,43 +11,27 @@ import type {
 
 // All IDs below are static so cross-references survive a reset.
 
+export const defaultCallTypes: CallType[] = [
+  { id: 'ct_llto', name: 'LLTO' },
+  { id: 'ct_hloc', name: 'HLOC' },
+  { id: 'ct_advice', name: 'Advice' },
+  { id: 'ct_repate', name: 'REPATE' },
+  { id: 'ct_scheduled', name: 'Scheduled' },
+  { id: 'ct_discharge', name: 'Discharge' },
+];
+
 export const defaultHealthAuthorities: HealthAuthority[] = [
   { id: 'ha_vch', name: 'VCH' },
   { id: 'ha_fh', name: 'Fraser Health' },
 ];
 
-export const defaultProcessSteps: ProcessSteps = {
-  lltoNo: [
-    { id: 'ps_l_n_1', text: 'Confirm receiving bed availability' },
-    { id: 'ps_l_n_2', text: 'Arrange ground transport via dispatch' },
-    { id: 'ps_l_n_3', text: 'Document acceptance and ETA' },
-  ],
-  lltoYes: [
-    { id: 'ps_l_y_1', text: 'Confirm outside-PTN acceptance' },
-    { id: 'ps_l_y_2', text: 'Engage IFT coordinator for inter-region transfer' },
-  ],
-  hlocNo: [
-    { id: 'ps_h_n_1', text: 'Notify receiving site charge nurse' },
-    { id: 'ps_h_n_2', text: 'Arrange critical care transport team' },
-    { id: 'ps_h_n_3', text: 'Confirm escort qualifications (RN/RT/MD)' },
-  ],
-  hlocYes: [
-    { id: 'ps_h_y_1', text: 'Escalate to Medical Director on-call' },
-    { id: 'ps_h_y_2', text: 'Confirm tertiary acceptance via Transfer Center' },
-  ],
-};
-
 export const defaultWorkflows: Workflow[] = [
   {
     id: 'wf_high_acuity',
     name: 'High Acuity Workflow',
+    callTypeId: 'ct_llto',
     questions: [
       { id: 'q_facility', type: 'facility', text: 'Sending facility' },
-      {
-        id: 'q_triage',
-        type: 'triage',
-        text: 'Is this a Lateral / Lower Triage Outside (LLTO) transfer? (Yes = LLTO, No = HLOC)',
-      },
       {
         id: 'q_specialty',
         type: 'specialty_multi',
@@ -72,11 +56,26 @@ export const defaultWorkflows: Workflow[] = [
           id: 'ptq_ptn',
           type: 'yesno',
           text: 'Was the patient accepted outside of PTN?',
-          drivesPtnBucket: true,
         },
       ],
     },
-    processSteps: defaultProcessSteps,
+    processSteps: [
+      { id: 'ps_1', text: 'Confirm receiving bed availability' },
+      { id: 'ps_2', text: 'Arrange ground transport via dispatch' },
+      { id: 'ps_3', text: 'Document acceptance and ETA' },
+      {
+        id: 'ps_4',
+        text: 'Confirm outside-PTN acceptance',
+        condQid: 'ptq_ptn',
+        condVal: 'Yes',
+      },
+      {
+        id: 'ps_5',
+        text: 'Engage IFT coordinator for inter-region transfer',
+        condQid: 'ptq_ptn',
+        condVal: 'Yes',
+      },
+    ],
   },
 ];
 
@@ -84,14 +83,10 @@ export const defaultSpecialtyServices: SpecialtyService[] = [
   {
     id: 'svc_card',
     name: 'Cardiology',
-    template: {
-      llto: {
+    templates: {
+      ct_llto: {
         preQuestions: [
-          {
-            id: 'sq_card_l1',
-            type: 'yesno',
-            text: 'Has 12-lead ECG been transmitted?',
-          },
+          { id: 'sq_card_l1', type: 'yesno', text: 'Has 12-lead ECG been transmitted?' },
           {
             id: 'sq_card_l2',
             type: 'dropdown',
@@ -108,13 +103,9 @@ export const defaultSpecialtyServices: SpecialtyService[] = [
           },
         ],
       },
-      hloc: {
+      ct_hloc: {
         preQuestions: [
-          {
-            id: 'sq_card_h1',
-            type: 'yesno',
-            text: 'Is the patient hemodynamically unstable?',
-          },
+          { id: 'sq_card_h1', type: 'yesno', text: 'Is the patient hemodynamically unstable?' },
         ],
         exceptionSteps: [
           {
@@ -131,18 +122,14 @@ export const defaultSpecialtyServices: SpecialtyService[] = [
   {
     id: 'svc_neuro',
     name: 'Neurology',
-    template: {
-      llto: {
+    templates: {
+      ct_llto: {
         preQuestions: [
-          {
-            id: 'sq_neuro_l1',
-            type: 'yesno',
-            text: 'Has CT head been performed?',
-          },
+          { id: 'sq_neuro_l1', type: 'yesno', text: 'Has CT head been performed?' },
         ],
         exceptionSteps: [],
       },
-      hloc: {
+      ct_hloc: {
         preQuestions: [
           {
             id: 'sq_neuro_h1',
@@ -176,8 +163,7 @@ export const defaultFacilities: Facility[] = [
       {
         id: 'nr_vgh_1',
         text: 'Notify Transfer Center at extension 2200',
-        llto: true,
-        hloc: true,
+        callTypeIds: [],     // empty = all call types
         svcIds: [],
         excludeSvcIds: [],
       },

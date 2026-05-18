@@ -7,11 +7,9 @@ import type {
   ExceptionStep,
   Facility,
   ProcessStep,
-  PsKey,
   SpecialtyService,
   TemplateQuestion,
   TriageContext,
-  VerKey,
   Workflow,
   WorkflowQuestion,
 } from '../types';
@@ -43,7 +41,6 @@ function findContext(
 
   let facId: string | null = null;
   let svcIds: string[] = [];
-  let llto: boolean | null = null;
   let destFacId: string | null = null;
   let diagnoses: string[] = [];
 
@@ -51,10 +48,6 @@ function findContext(
     if (q.type === 'facility') {
       const f = answers[`${q.id}__facid`];
       if (f) facId = f;
-    } else if (q.type === 'triage') {
-      const a = answers[q.id];
-      if (a === 'Yes') llto = true;
-      else if (a === 'No') llto = false;
     } else if (q.type === 'specialty_multi') {
       const raw = answers[`${q.id}__svcs`];
       if (raw) {
@@ -74,7 +67,7 @@ function findContext(
       }
     }
   }
-  return { facId, svcIds, llto, destFacId, diagnoses };
+  return { facId, svcIds, destFacId, diagnoses };
 }
 
 function applyOrder<T extends { id: string }>(all: T[], order: string[]): T[] {
@@ -95,10 +88,11 @@ function applyOrder<T extends { id: string }>(all: T[], order: string[]): T[] {
 function getActiveCardQs(
   service: SpecialtyService,
   override: CardOverridePart | null,
-  verKey: VerKey
+  callTypeId: string
 ): TemplateQuestion[] {
-  const tpl = service.template[verKey];
-  const base = tpl.preQuestions.filter((q) => !override?.deactivated.includes(q.id));
+  const tpl = service.templates[callTypeId];
+  const baseQs = tpl?.preQuestions ?? [];
+  const base = baseQs.filter((q) => !override?.deactivated.includes(q.id));
   const all = [...base, ...(override?.addedQuestions ?? [])];
   return applyOrder(all, override?.qOrder ?? []);
 }
@@ -106,11 +100,12 @@ function getActiveCardQs(
 function getActiveCardSteps(
   service: SpecialtyService,
   override: CardOverridePart | null,
-  verKey: VerKey,
+  callTypeId: string,
   preAnswers: Record<string, string>
 ): ExceptionStep[] {
-  const tpl = service.template[verKey];
-  const base = tpl.exceptionSteps.filter((s) => !override?.deactivated.includes(s.id));
+  const tpl = service.templates[callTypeId];
+  const baseSteps = tpl?.exceptionSteps ?? [];
+  const base = baseSteps.filter((s) => !override?.deactivated.includes(s.id));
   const all = [...base, ...(override?.addedSteps ?? [])];
   const ordered = applyOrder(all, override?.sOrder ?? []);
   return ordered.filter((s) => {
@@ -123,8 +118,9 @@ function getActiveCardSteps(
 
 export interface UseTriageResult {
   activeWorkflow: Workflow | null;
+  callTypeId: string;
+  callTypeName: string;
   hasReferralQuestion: boolean;
-  hasTriageQuestion: boolean;
 
   answers: Record<string, string>;
   currentIndex: number;
@@ -139,8 +135,6 @@ export interface UseTriageResult {
   currentQuestion: WorkflowQuestion | undefined;
   context: TriageContext;
   acQueue: AcQueueItem[];
-  verKey: VerKey;
-  psKey: PsKey;
   destFacility: Facility | null;
   sendingFacility: Facility | null;
   activeProcessSteps: ProcessStep[];
@@ -159,10 +153,10 @@ export interface UseTriageResult {
   markNotifsSent: () => void;
   setNotes: (s: string) => void;
 
-  getActiveCardQs: (svcId: string, verKey: VerKey, facId: string) => TemplateQuestion[];
+  getActiveCardQs: (svcId: string, callTypeId: string, facId: string) => TemplateQuestion[];
   getActiveCardSteps: (
     svcId: string,
-    verKey: VerKey,
+    callTypeId: string,
     facId: string,
     preAnswers: Record<string, string>
   ) => ExceptionStep[];
@@ -173,6 +167,7 @@ export function useTriage(): UseTriageResult {
   const facilities = useAppStore((s) => s.facilities);
   const specialty = useAppStore((s) => s.specialty);
   const overrides = useAppStore((s) => s.overrides);
+  const callTypes = useAppStore((s) => s.callTypes);
 
   const activeWorkflowId = useTriageStore((s) => s.activeWorkflowId);
   const answers = useTriageStore((s) => s.answers);
@@ -201,6 +196,9 @@ export function useTriage(): UseTriageResult {
     [workflows, activeWorkflowId]
   );
 
+  const callTypeId = activeWorkflow?.callTypeId ?? '';
+  const callTypeName = callTypes.find((c) => c.id === callTypeId)?.name ?? '';
+
   const workflowQuestions = activeWorkflow?.questions ?? [];
 
   const visibleQuestions = useMemo(
@@ -213,9 +211,6 @@ export function useTriage(): UseTriageResult {
     [visibleQuestions, answers]
   );
 
-  // verKey: if no triage question, defaults to llto (Standard fallback).
-  const verKey: VerKey = context.llto !== false ? 'llto' : 'hloc';
-
   const acQueue: AcQueueItem[] = useMemo(() => {
     if (!context.destFacId || context.svcIds.length === 0) return [];
     return context.svcIds.map((svcId) => ({
@@ -224,60 +219,50 @@ export function useTriage(): UseTriageResult {
     }));
   }, [context.destFacId, context.svcIds]);
 
-  // PTN bucket determination: look for a post-triage question with
-  // drivesPtnBucket=true and check whether its answer is "Yes" (or any truthy
-  // non-blank for text/dropdown types).
-  const ptnTriggered = useMemo(() => {
-    const qs = activeWorkflow?.postTriage.questions ?? [];
-    const driver = qs.find((q) => q.drivesPtnBucket);
-    if (!driver) return false;
-    const a = postTriageAnswers[driver.id] ?? '';
-    if (driver.type === 'yesno') return a === 'Yes';
-    return a.trim().length > 0;
-  }, [activeWorkflow, postTriageAnswers]);
-
-  const ptnSuffix = ptnTriggered ? 'Yes' : 'No';
-  const psKey: PsKey = (`${verKey}${ptnSuffix}` as PsKey);
-
   const destFacility = facilities.find((f) => f.id === context.destFacId) ?? null;
   const sendingFacility = facilities.find((f) => f.id === context.facId) ?? null;
 
   const activeProcessSteps = useMemo(() => {
     if (!activeWorkflow) return [];
-    return activeWorkflow.processSteps[psKey] ?? [];
-  }, [activeWorkflow, psKey]);
+    return activeWorkflow.processSteps.filter((s) => {
+      if (!s.condQid) return true;
+      const a = (postTriageAnswers[s.condQid] ?? '').toLowerCase();
+      const want = (s.condVal ?? '').toLowerCase();
+      return a === want;
+    });
+  }, [activeWorkflow, postTriageAnswers]);
 
   const hasReferralQuestion = workflowQuestions.some((q) => q.type === 'referral_resolve');
-  const hasTriageQuestion = workflowQuestions.some((q) => q.type === 'triage');
 
   const goToPreQuestions = useCallback(() => setPhase('pre-questions'), [setPhase]);
   const goToResult = useCallback(() => setPhase('result'), [setPhase]);
   const goToWorkflow = useCallback(() => setPhase('workflow'), [setPhase]);
 
   const getActiveCardQsWrapped = useCallback(
-    (svcId: string, vk: VerKey, facId: string): TemplateQuestion[] => {
+    (svcId: string, ctId: string, facId: string): TemplateQuestion[] => {
       const svc = specialty.find((s) => s.id === svcId);
       if (!svc) return [];
       const ov = overrides.find((o) => o.facilityId === facId && o.svcId === svcId);
-      return getActiveCardQs(svc, ov ? ov[vk] : null, vk);
+      return getActiveCardQs(svc, ov?.parts[ctId] ?? null, ctId);
     },
     [specialty, overrides]
   );
 
   const getActiveCardStepsWrapped = useCallback(
-    (svcId: string, vk: VerKey, facId: string, preAnswers: Record<string, string>): ExceptionStep[] => {
+    (svcId: string, ctId: string, facId: string, preAnswers: Record<string, string>): ExceptionStep[] => {
       const svc = specialty.find((s) => s.id === svcId);
       if (!svc) return [];
       const ov = overrides.find((o) => o.facilityId === facId && o.svcId === svcId);
-      return getActiveCardSteps(svc, ov ? ov[vk] : null, vk, preAnswers);
+      return getActiveCardSteps(svc, ov?.parts[ctId] ?? null, ctId, preAnswers);
     },
     [specialty, overrides]
   );
 
   return {
     activeWorkflow,
+    callTypeId,
+    callTypeName,
     hasReferralQuestion,
-    hasTriageQuestion,
     answers,
     currentIndex,
     taShown,
@@ -290,8 +275,6 @@ export function useTriage(): UseTriageResult {
     currentQuestion: visibleQuestions[currentIndex],
     context,
     acQueue,
-    verKey,
-    psKey,
     destFacility,
     sendingFacility,
     activeProcessSteps,

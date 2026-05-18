@@ -1,16 +1,17 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useAppStore } from '../store/appStore';
 import { Card } from '../components/ui/Card';
 import { Badge } from '../components/ui/Badge';
 import { Combobox } from '../components/ui/Combobox';
 import { MultiSelect } from '../components/ui/MultiSelect';
 import { Button } from '../components/ui/Button';
+import { Select } from '../components/ui/Input';
 import type {
   CardOverride,
+  CardOverridePart,
   ExceptionStep,
   SpecialtyService,
   TemplateQuestion,
-  VerKey,
 } from '../types';
 
 function applyOrder<T extends { id: string }>(all: T[], order: string[]): T[] {
@@ -19,10 +20,7 @@ function applyOrder<T extends { id: string }>(all: T[], order: string[]): T[] {
   const out: T[] = [];
   for (const id of order) {
     const q = map.get(id);
-    if (q) {
-      out.push(q);
-      map.delete(id);
-    }
+    if (q) { out.push(q); map.delete(id); }
   }
   for (const q of map.values()) out.push(q);
   return out;
@@ -33,18 +31,18 @@ interface MergedCard {
   steps: ExceptionStep[];
 }
 
-function mergeForVersion(
+function mergeForCallType(
   svc: SpecialtyService,
   override: CardOverride | null,
-  verKey: VerKey
+  callTypeId: string
 ): MergedCard {
-  const tpl = svc.template[verKey];
-  const part = override ? override[verKey] : null;
-  const baseQs = tpl.preQuestions.filter((q) => !part?.deactivated.includes(q.id));
+  const tpl = svc.templates[callTypeId];
+  const part: CardOverridePart | null = override?.parts[callTypeId] ?? null;
+  const baseQs = (tpl?.preQuestions ?? []).filter((q) => !part?.deactivated.includes(q.id));
   const allQs = [...baseQs, ...(part?.addedQuestions ?? [])];
   const qs = applyOrder(allQs, part?.qOrder ?? []);
 
-  const baseSteps = tpl.exceptionSteps.filter((s) => !part?.deactivated.includes(s.id));
+  const baseSteps = (tpl?.exceptionSteps ?? []).filter((s) => !part?.deactivated.includes(s.id));
   const allSteps = [...baseSteps, ...(part?.addedSteps ?? [])];
   const steps = applyOrder(allSteps, part?.sOrder ?? []);
 
@@ -56,12 +54,17 @@ export function ProcessCardsPage() {
   const specialty = useAppStore((s) => s.specialty);
   const overrides = useAppStore((s) => s.overrides);
   const has = useAppStore((s) => s.healthAuthorities);
+  const callTypes = useAppStore((s) => s.callTypes);
 
   const haName = (id: string) => has.find((h) => h.id === id)?.name ?? '';
 
   const [facId, setFacId] = useState('');
   const [svcIds, setSvcIds] = useState<string[]>([]);
-  const [verKey, setVerKey] = useState<VerKey>('llto');
+  const [callTypeId, setCallTypeId] = useState<string>('');
+
+  useEffect(() => {
+    if (!callTypeId && callTypes.length > 0) setCallTypeId(callTypes[0].id);
+  }, [callTypes, callTypeId]);
 
   const facility = facilities.find((f) => f.id === facId) ?? null;
   const services = useMemo(
@@ -72,12 +75,10 @@ export function ProcessCardsPage() {
     [svcIds, specialty]
   );
 
-  // Notification requirements for this facility, filtered by version + svc include/exclude.
   const notifReqs = useMemo(() => {
     if (!facility) return [];
     return facility.notificationRequirements.filter((nr) => {
-      if (verKey === 'llto' && !nr.llto) return false;
-      if (verKey === 'hloc' && !nr.hloc) return false;
+      if (nr.callTypeIds.length > 0 && !nr.callTypeIds.includes(callTypeId)) return false;
       if (nr.svcIds.length > 0) {
         return svcIds.some((svc) => nr.svcIds.includes(svc));
       }
@@ -86,7 +87,7 @@ export function ProcessCardsPage() {
       }
       return true;
     });
-  }, [facility, verKey, svcIds]);
+  }, [facility, callTypeId, svcIds]);
 
   const facilityOptions = facilities.map((f) => ({
     value: f.id,
@@ -98,8 +99,10 @@ export function ProcessCardsPage() {
   function clear() {
     setFacId('');
     setSvcIds([]);
-    setVerKey('llto');
+    setCallTypeId(callTypes[0]?.id ?? '');
   }
+
+  const activeCallType = callTypes.find((c) => c.id === callTypeId);
 
   return (
     <div className="space-y-4">
@@ -108,7 +111,7 @@ export function ProcessCardsPage() {
           <h1 className="text-2xl font-bold text-slate-800">Process card lookup</h1>
           <p className="text-sm text-slate-500">
             Preview the action card content and notification requirements for a specific
-            facility / service / version, without running a triage case.
+            facility / service / call type, without running a triage case.
           </p>
         </div>
         <Button size="sm" variant="ghost" onClick={clear}>Clear</Button>
@@ -131,21 +134,11 @@ export function ProcessCardsPage() {
             onChange={setSvcIds}
             placeholder="Pick one or more…"
           />
-          <div>
-            <label className="text-xs font-medium text-slate-600 mb-1 block">Version</label>
-            <div className="flex gap-2">
-              {(['llto', 'hloc'] as VerKey[]).map((v) => (
-                <Button
-                  key={v}
-                  size="sm"
-                  variant={verKey === v ? 'primary' : 'secondary'}
-                  onClick={() => setVerKey(v)}
-                >
-                  {v.toUpperCase()}
-                </Button>
-              ))}
-            </div>
-          </div>
+          <Select label="Call type" value={callTypeId} onChange={(e) => setCallTypeId(e.target.value)}>
+            {callTypes.map((c) => (
+              <option key={c.id} value={c.id}>{c.name}</option>
+            ))}
+          </Select>
         </div>
       </Card>
 
@@ -160,12 +153,10 @@ export function ProcessCardsPage() {
         <>
           <Card
             title="Receiving-facility notification requirements"
-            description={`${facility?.name ?? ''} · ${verKey.toUpperCase()}`}
+            description={`${facility?.name ?? ''}${activeCallType ? ` · ${activeCallType.name}` : ''}`}
           >
             {notifReqs.length === 0 ? (
-              <div className="text-sm text-slate-400">
-                No matching requirements.
-              </div>
+              <div className="text-sm text-slate-400">No matching requirements.</div>
             ) : (
               <ul className="list-disc pl-5 space-y-1 text-sm">
                 {notifReqs.map((nr) => (
@@ -196,15 +187,16 @@ export function ProcessCardsPage() {
               const ov = facility
                 ? overrides.find((o) => o.facilityId === facility.id && o.svcId === svc.id) ?? null
                 : null;
-              const merged = mergeForVersion(svc, ov, verKey);
+              const merged = mergeForCallType(svc, ov, callTypeId);
+              const hasOverride = !!ov?.parts[callTypeId];
               return (
                 <Card
                   key={svc.id}
                   title={
                     <span className="flex items-center gap-2">
                       <span>{svc.name}</span>
-                      <Badge tone={verKey === 'llto' ? 'green' : 'red'}>{verKey.toUpperCase()}</Badge>
-                      {ov && <Badge tone="amber">facility override</Badge>}
+                      {activeCallType && <Badge tone="blue">{activeCallType.name}</Badge>}
+                      {hasOverride && <Badge tone="amber">facility override</Badge>}
                     </span>
                   }
                   description={facility ? `at ${facility.name}` : 'no facility selected'}

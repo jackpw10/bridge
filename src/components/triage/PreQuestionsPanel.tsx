@@ -31,7 +31,7 @@ export function PreQuestionsPanel({ onDone }: Props) {
     }
     if (showServicePreQs) {
       for (const item of t.acQueue) {
-        const qs = t.getActiveCardQs(item.svcId, t.verKey, item.destFacId);
+        const qs = t.getActiveCardQs(item.svcId, t.callTypeId, item.destFacId);
         for (const q of qs) {
           const key = `${item.svcId}:${q.id}`;
           if (!t.acStates[key]) return false;
@@ -67,16 +67,14 @@ export function PreQuestionsPanel({ onDone }: Props) {
         const svc = specialty.find((s) => s.id === item.svcId);
         const dest = facilities.find((f) => f.id === item.destFacId);
         if (!svc) return null;
-        const qs = t.getActiveCardQs(item.svcId, t.verKey, item.destFacId);
+        const qs = t.getActiveCardQs(item.svcId, t.callTypeId, item.destFacId);
         return (
           <Card
             key={`${item.svcId}:${item.destFacId}`}
             title={
               <span className="flex items-center gap-2">
                 <span>{svc.name}</span>
-                {t.hasTriageQuestion && (
-                  <Badge tone={t.verKey === 'llto' ? 'green' : 'red'}>{t.verKey.toUpperCase()}</Badge>
-                )}
+                {t.callTypeName && <Badge tone="blue">{t.callTypeName}</Badge>}
               </span>
             }
             description={`Destination: ${dest?.name ?? '—'}`}

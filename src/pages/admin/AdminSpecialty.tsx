@@ -9,15 +9,13 @@ import { downloadCsv, fromCsv, toCsv } from '../../utils/csv';
 export function AdminSpecialtyPage() {
   const services = useAppStore((s) => s.specialty);
   const setServices = useAppStore((s) => s.setSpecialty);
+  const callTypes = useAppStore((s) => s.callTypes);
 
   function add() {
     const s: SpecialtyService = {
       id: uid('svc'),
       name: 'New service',
-      template: {
-        llto: { preQuestions: [], exceptionSteps: [] },
-        hloc: { preQuestions: [], exceptionSteps: [] },
-      },
+      templates: {},
       transportAdvisor: { enabled: false, cards: [] },
     };
     setServices([...services, s]);
@@ -44,7 +42,7 @@ export function AdminSpecialtyPage() {
           : {
               id,
               name: r.name ?? '',
-              template: { llto: { preQuestions: [], exceptionSteps: [] }, hloc: { preQuestions: [], exceptionSteps: [] } },
+              templates: {},
               transportAdvisor: { enabled: false, cards: [] },
             }
         );
@@ -52,6 +50,17 @@ export function AdminSpecialtyPage() {
       setServices(Array.from(byId.values()));
     };
     reader.readAsText(file);
+  }
+
+  function summarizeTemplates(svc: SpecialtyService): string {
+    const parts: string[] = [];
+    for (const ct of callTypes) {
+      const tpl = svc.templates[ct.id];
+      if (tpl && (tpl.preQuestions.length || tpl.exceptionSteps.length)) {
+        parts.push(`${ct.name}: ${tpl.preQuestions.length}q / ${tpl.exceptionSteps.length}s`);
+      }
+    }
+    return parts.join(' · ') || 'no templates configured';
   }
 
   return (
@@ -77,10 +86,7 @@ export function AdminSpecialtyPage() {
             <div key={s.id} className="py-3 flex items-center justify-between">
               <div>
                 <Link to={`/admin/specialty/${s.id}`} className="font-medium text-slate-800 hover:underline">{s.name}</Link>
-                <div className="text-xs text-slate-500">
-                  LLTO: {s.template.llto.preQuestions.length}q / {s.template.llto.exceptionSteps.length}s ·{' '}
-                  HLOC: {s.template.hloc.preQuestions.length}q / {s.template.hloc.exceptionSteps.length}s
-                </div>
+                <div className="text-xs text-slate-500">{summarizeTemplates(s)}</div>
               </div>
               <div className="flex gap-2">
                 <Link to={`/admin/specialty/${s.id}`}>
