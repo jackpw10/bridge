@@ -1,3 +1,4 @@
+import { useEffect, useRef } from 'react';
 import type { WorkflowQuestion } from '../../types';
 import { useAppStore } from '../../store/appStore';
 import { Input, Select } from '../ui/Input';
@@ -22,16 +23,34 @@ export function QuestionRenderer({ question, answers, setAnswer }: Props) {
 
   const value = answers[question.id] ?? '';
 
+  // Explicit focus on mount for text/dropdown — the `autoFocus` attribute is
+  // unreliable when the previous question's element still held focus at the
+  // moment React commits the new tree. We focus via ref + a microtask to
+  // guarantee the element exists and is interactable.
+  const inputRef = useRef<HTMLInputElement>(null);
+  const selectRef = useRef<HTMLSelectElement>(null);
+  useEffect(() => {
+    const t = window.setTimeout(() => {
+      inputRef.current?.focus();
+      selectRef.current?.focus();
+    }, 0);
+    return () => window.clearTimeout(t);
+  }, []);
+
   if (question.type === 'yesno' || question.type === 'triage') {
+    const opts: Array<{ value: 'Yes' | 'No'; hotkey: 'Y' | 'N'; rest: string }> = [
+      { value: 'Yes', hotkey: 'Y', rest: 'es' },
+      { value: 'No', hotkey: 'N', rest: 'o' },
+    ];
     return (
       <div className="flex gap-2">
-        {['Yes', 'No'].map((opt) => (
+        {opts.map((o) => (
           <Button
-            key={opt}
-            variant={value === opt ? 'primary' : 'secondary'}
-            onClick={() => setAnswer(question.id, opt)}
+            key={o.value}
+            variant={value === o.value ? 'primary' : 'secondary'}
+            onClick={() => setAnswer(question.id, o.value)}
           >
-            {opt}
+            ({o.hotkey}){o.rest}
           </Button>
         ))}
         {question.type === 'triage' && (
@@ -46,6 +65,7 @@ export function QuestionRenderer({ question, answers, setAnswer }: Props) {
   if (question.type === 'dropdown') {
     return (
       <Select
+        ref={selectRef}
         autoFocus
         value={value}
         onChange={(e) => setAnswer(question.id, e.target.value)}
@@ -63,6 +83,7 @@ export function QuestionRenderer({ question, answers, setAnswer }: Props) {
   if (question.type === 'text') {
     return (
       <Input
+        ref={inputRef}
         autoFocus
         value={value}
         onChange={(e) => setAnswer(question.id, e.target.value)}

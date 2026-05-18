@@ -1,4 +1,4 @@
-import { useEffect, type ReactNode } from 'react';
+import { type ReactNode } from 'react';
 import { cn } from '../../utils/cn';
 
 interface Props {
@@ -17,29 +17,21 @@ const sizeMap = {
   xl: 'max-w-5xl',
 };
 
+// Closes only via the X button (or the explicit footer cancel button).
+// Clicking the backdrop or pressing Escape will NOT dismiss the modal, so a
+// stray click can't lose unsaved edits.
 export function Modal({ open, onClose, title, children, size = 'md', footer }: Props) {
-  useEffect(() => {
-    if (!open) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [open, onClose]);
-
   if (!open) return null;
 
   return (
     <div
       className="fixed inset-0 z-50 bg-black/40 flex items-start justify-center overflow-y-auto p-4"
-      onClick={onClose}
     >
       <div
         className={cn(
           'bg-white rounded-lg shadow-xl w-full my-8 flex flex-col',
           sizeMap[size]
         )}
-        onClick={(e) => e.stopPropagation()}
       >
         {title && (
           <div className="px-5 py-3 border-b border-slate-100 flex items-center justify-between">

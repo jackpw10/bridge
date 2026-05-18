@@ -1,3 +1,4 @@
+import { forwardRef } from 'react';
 import type { InputHTMLAttributes, TextareaHTMLAttributes, SelectHTMLAttributes } from 'react';
 import { cn } from '../../utils/cn';
 
@@ -8,7 +9,10 @@ interface InputProps extends InputHTMLAttributes<HTMLInputElement> {
   label?: string;
 }
 
-export function Input({ label, className, id, ...rest }: InputProps) {
+export const Input = forwardRef<HTMLInputElement, InputProps>(function Input(
+  { label, className, id, ...rest },
+  ref,
+) {
   return (
     <div className="flex flex-col gap-1">
       {label && (
@@ -16,16 +20,19 @@ export function Input({ label, className, id, ...rest }: InputProps) {
           {label}
         </label>
       )}
-      <input id={id} className={cn(baseField, className)} {...rest} />
+      <input ref={ref} id={id} className={cn(baseField, className)} {...rest} />
     </div>
   );
-}
+});
 
 interface TextareaProps extends TextareaHTMLAttributes<HTMLTextAreaElement> {
   label?: string;
 }
 
-export function Textarea({ label, className, id, ...rest }: TextareaProps) {
+export const Textarea = forwardRef<HTMLTextAreaElement, TextareaProps>(function Textarea(
+  { label, className, id, ...rest },
+  ref,
+) {
   return (
     <div className="flex flex-col gap-1">
       {label && (
@@ -33,16 +40,19 @@ export function Textarea({ label, className, id, ...rest }: TextareaProps) {
           {label}
         </label>
       )}
-      <textarea id={id} className={cn(baseField, 'min-h-[80px]', className)} {...rest} />
+      <textarea ref={ref} id={id} className={cn(baseField, 'min-h-[80px]', className)} {...rest} />
     </div>
   );
-}
+});
 
 interface SelectProps extends SelectHTMLAttributes<HTMLSelectElement> {
   label?: string;
 }
 
-export function Select({ label, className, id, children, ...rest }: SelectProps) {
+export const Select = forwardRef<HTMLSelectElement, SelectProps>(function Select(
+  { label, className, id, children, ...rest },
+  ref,
+) {
   return (
     <div className="flex flex-col gap-1">
       {label && (
@@ -50,9 +60,9 @@ export function Select({ label, className, id, children, ...rest }: SelectProps)
           {label}
         </label>
       )}
-      <select id={id} className={cn(baseField, className)} {...rest}>
+      <select ref={ref} id={id} className={cn(baseField, className)} {...rest}>
         {children}
       </select>
     </div>
   );
-}
+});

@@ -237,63 +237,13 @@ async function migrateV5() {
   }
 }
 
-// =========================================================================
-// MIGRATION v4: expand sub-versions on High Acuity / Repate to encode the
-// PTN dimension; replace per-workflow subVersionResolver with
-// subVersionRules; reshape workflow.processSteps from a flat array to a
-// Record keyed by sub-version. Wipes process step content (user chose
-// fresh templates earlier; consistent here).
-// Detection key: whether High Acuity has sub-version `llto_std`.
-// =========================================================================
-async function migrateV4() {
-  // Re-fetch call types each time — they may have just been seeded.
-  const { data: ctRows } = await supabase.from('call_types').select('id, sub_versions');
-  const haRow = (ctRows ?? []).find((r) => r.id === 'ct_high_acuity') as
-    | { id: string; sub_versions: unknown }
-    | undefined;
-  const haSubVersions = (haRow?.sub_versions as Array<{ id: string }>) ?? [];
-  if (haSubVersions.some((s) => s.id === 'llto_std')) return; // already v4
-
-  // 1) Replace call_types with the new defaults (4 subs on High Acuity etc.).
-  await supabase.from('call_types').delete().neq('id', '__none__');
-  await supabase.from('call_types').insert(defaultCallTypes.map(callTypeToRow));
-
-  // 2) Wipe service template content (sub-version IDs changed).
-  const { data: svcs } = await supabase.from('specialty_services').select('id, transport_advisor');
-  for (const s of (svcs ?? []) as Array<{ id: string; transport_advisor: unknown }>) {
-    const ta = (s.transport_advisor as { enabled?: boolean; cards?: Array<Record<string, unknown>> } | null) ?? null;
-    const cards = (ta?.cards ?? []).map((c) => ({ ...c, callTypeIds: [] }));
-    await supabase
-      .from('specialty_services')
-      .update({ templates: {}, transport_advisor: { enabled: ta?.enabled ?? false, cards } })
-      .eq('id', s.id);
-  }
-
-  // 3) Wipe card overrides (sub-version IDs changed).
-  await supabase.from('card_overrides').delete().neq('id', '__none__');
-
-  // 4) Migrate workflows: convert sub_version_resolver → sub_version_rules;
-  // wipe process_steps to {} since old format is incompatible.
-  const { data: wfs } = await supabase
-    .from('workflows')
-    .select('id, call_type_id, sub_version_resolver');
-  for (const w of (wfs ?? []) as Array<{
-    id: string;
-    call_type_id: string;
-    sub_version_resolver: unknown;
-  }>) {
-    const update: Record<string, unknown> = {
-      sub_version_rules: {},
-      process_steps: {},
-    };
-    // Detect High Acuity (had LLTO/HLOC resolver). If the existing
-    // resolver maps Yes→llto / No→hloc, we can't safely auto-wire the new
-    // 4-sub-version rules (need PTN question id). Just clear and let the
-    // admin re-configure.
-    update.sub_version_resolver = null;
-    await supabase.from('workflows').update(update).eq('id', w.id);
-  }
-}
+// NOTE: A migration v4 used to live here. It was intentionally removed
+// because, after sub-versions were collapsed back from 4-per-HA to 2-per-HA,
+// v4's detection logic ("skip if llto_std exists") inverted: the current
+// defaults no longer contain `llto_std`, so v4 would run on every page load
+// and wipe every workflow's process_steps + sub_version_rules. v5 below
+// handles the now-correct transition (only runs if llto_std IS present —
+// i.e. legacy data needing collapse).
 
 // =========================================================================
 // MIGRATION v3: rewrite call types to be workflow-types (High Acuity etc.),
@@ -469,7 +419,6 @@ async function seedIfEmpty() {
 export async function loadAllData(): Promise<void> {
   try {
     await migrateV3();
-    await migrateV4();
     await migrateV5();
     await seedIfEmpty();
     const [

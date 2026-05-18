@@ -2,6 +2,7 @@ import { useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useTriage } from '../hooks/useTriage';
 import { useAppStore } from '../store/appStore';
+import { useTriageStore } from '../store/triageStore';
 import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
 import { Badge } from '../components/ui/Badge';
@@ -126,6 +127,35 @@ export function TriagePage() {
     return !!t.answers[cur.id];
   }
 
+  // Compute can-advance from the LATEST store state (not the closure captured
+  // at render time). Native <select> arrow-key changes fire onChange just
+  // before the user presses Enter — relying on the rendered closure would
+  // read stale answers and skip the advance.
+  function canAdvanceFresh(): boolean {
+    const answers = useTriageStore.getState().answers;
+    if (cur.type === 'referral_resolve') {
+      const choice = answers[`${cur.id}__choice`];
+      if (!choice) return false;
+      if (unseenTa.length > 0) return false;
+      return true;
+    }
+    if (cur.type === 'text') {
+      return !!(answers[cur.id] && answers[cur.id].trim());
+    }
+    if (cur.type === 'specialty_multi') {
+      const raw = answers[`${cur.id}__svcs`];
+      try { return raw ? (JSON.parse(raw) as string[]).length > 0 : false; } catch { return false; }
+    }
+    if (cur.type === 'diagnosis_multi') {
+      const raw = answers[`${cur.id}__dxs`];
+      try { return raw ? (JSON.parse(raw) as string[]).length > 0 : false; } catch { return false; }
+    }
+    if (cur.type === 'facility' || cur.type === 'receiving_facility') {
+      return !!(answers[`${cur.id}__facid`] || answers[`${cur.id}__freetext`]);
+    }
+    return !!answers[cur.id];
+  }
+
   // Keyboard shortcuts during the workflow question phase:
   //   Y / N → select Yes / No on yes/no questions (when no input is focused)
   //   Enter → advance, unless focus is in a textarea (lets user type newlines
@@ -156,8 +186,9 @@ export function TriagePage() {
 
       if (e.key === 'Enter') {
         if (tag === 'TEXTAREA') return;
-        if (canAdvance()) {
+        if (canAdvanceFresh()) {
           e.preventDefault();
+          (target as HTMLElement | null)?.blur?.();
           t.goNext();
         }
       }
