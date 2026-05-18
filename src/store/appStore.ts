@@ -192,6 +192,52 @@ async function diffSyncList<R extends { id: string }>(
 }
 
 // =========================================================================
+// MIGRATION v5: collapse High Acuity sub-versions back down to LLTO/HLOC
+// (and Repate back to a single 'default') because the PTN dimension now
+// only branches generic process steps, not service templates. Service
+// template content is wiped (sub-version IDs changed); workflow process
+// steps and sub-version rules are reset for admins to re-configure.
+// Detection key: whether High Acuity still has `llto_std`.
+// =========================================================================
+async function migrateV5() {
+  const { data: ctRows } = await supabase.from('call_types').select('id, sub_versions');
+  const haRow = (ctRows ?? []).find((r) => r.id === 'ct_high_acuity') as
+    | { id: string; sub_versions: unknown }
+    | undefined;
+  const haSubVersions = (haRow?.sub_versions as Array<{ id: string }>) ?? [];
+  // Skip if HA has already been collapsed (no llto_std present).
+  if (!haSubVersions.some((s) => s.id === 'llto_std')) return;
+
+  // 1) Replace call_types with the new (collapsed) defaults.
+  await supabase.from('call_types').delete().neq('id', '__none__');
+  await supabase.from('call_types').insert(defaultCallTypes.map(callTypeToRow));
+
+  // 2) Wipe service template content (sub-version IDs changed: llto_std → llto, etc.).
+  const { data: svcs } = await supabase.from('specialty_services').select('id, transport_advisor');
+  for (const s of (svcs ?? []) as Array<{ id: string; transport_advisor: unknown }>) {
+    const ta = (s.transport_advisor as { enabled?: boolean; cards?: Array<Record<string, unknown>> } | null) ?? null;
+    await supabase
+      .from('specialty_services')
+      .update({ templates: {}, transport_advisor: ta ?? { enabled: false, cards: [] } })
+      .eq('id', s.id);
+  }
+
+  // 3) Wipe card overrides (sub-version IDs changed).
+  await supabase.from('card_overrides').delete().neq('id', '__none__');
+
+  // 4) Reset workflows' sub_version_rules and process_steps to empty —
+  // admins re-wire them. Post-triage content is preserved but PTN flags
+  // must be re-set in the admin UI.
+  const { data: wfs } = await supabase.from('workflows').select('id');
+  for (const w of (wfs ?? []) as Array<{ id: string }>) {
+    await supabase
+      .from('workflows')
+      .update({ sub_version_rules: {}, process_steps: {} })
+      .eq('id', w.id);
+  }
+}
+
+// =========================================================================
 // MIGRATION v4: expand sub-versions on High Acuity / Repate to encode the
 // PTN dimension; replace per-workflow subVersionResolver with
 // subVersionRules; reshape workflow.processSteps from a flat array to a
@@ -424,6 +470,7 @@ export async function loadAllData(): Promise<void> {
   try {
     await migrateV3();
     await migrateV4();
+    await migrateV5();
     await seedIfEmpty();
     const [
       { data: ctRows },

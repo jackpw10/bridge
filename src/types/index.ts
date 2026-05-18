@@ -61,11 +61,14 @@ export interface WorkflowQuestion {
 }
 
 // A question shown on the Post-Triage screen (questions mode).
+// If isPtnQuestion is true, the answer (Yes → 'outside', No → 'std') splits the
+// workflow's generic process steps into two variants per sub-version.
 export interface PostTriageQuestion {
   id: string;
   type: 'yesno' | 'dropdown' | 'text';
   text: string;
   options?: string[];
+  isPtnQuestion?: boolean;
 }
 
 export interface TransportReqItem {
@@ -97,8 +100,9 @@ export interface Workflow {
   subVersionRules: Record<string, Condition[]>;
   questions: WorkflowQuestion[];
   postTriage: PostTriageConfig;
-  // Process steps now keyed by sub-version id. Workflows whose call type has
-  // a single sub-version use the literal 'default' key.
+  // Process steps keyed by sub-version id, or by `${subVersionId}:${'std'|'outside'}`
+  // when the workflow's post-triage has a question flagged isPtnQuestion (the PTN
+  // dimension only branches generic process steps — not service templates).
   processSteps: Record<string, ProcessStep[]>;
 }
 

@@ -43,6 +43,7 @@ export function AdminWorkflowDetailPage() {
   const [editingQ, setEditingQ] = useState<WorkflowQuestion | null>(null);
   const [addingQ, setAddingQ] = useState(false);
   const [psTabSvId, setPsTabSvId] = useState<string>('');
+  const [psTabPtn, setPsTabPtn] = useState<'std' | 'outside'>('std');
 
   if (!wf) {
     return (
@@ -248,6 +249,8 @@ export function AdminWorkflowDetailPage() {
         callType={activeCallType}
         activeSvId={psTabSvId}
         setActiveSvId={setPsTabSvId}
+        activePtn={psTabPtn}
+        setActivePtn={setPsTabPtn}
         stepsFor={stepsFor}
         addStepFor={addStepFor}
         updateStepFor={updateStepFor}
@@ -272,6 +275,8 @@ function ProcessStepsEditor({
   callType,
   activeSvId,
   setActiveSvId,
+  activePtn,
+  setActivePtn,
   stepsFor,
   addStepFor,
   updateStepFor,
@@ -282,6 +287,8 @@ function ProcessStepsEditor({
   callType: CallType | undefined;
   activeSvId: string;
   setActiveSvId: (id: string) => void;
+  activePtn: 'std' | 'outside';
+  setActivePtn: (v: 'std' | 'outside') => void;
   stepsFor: (svId: string) => ProcessStep[];
   addStepFor: (svId: string) => void;
   updateStepFor: (svId: string, sid: string, text: string) => void;
@@ -290,7 +297,16 @@ function ProcessStepsEditor({
 }) {
   const subVersions = callType?.subVersions ?? [];
   const effectiveSvId = activeSvId || subVersions[0]?.id || '';
-  const steps = effectiveSvId ? stepsFor(effectiveSvId) : [];
+
+  // PTN-aware: if the workflow's post-triage has an isPtnQuestion, process
+  // steps are stored under `${svId}:${'std'|'outside'}`. Otherwise just `${svId}`.
+  const hasPtn = wf.postTriage.mode === 'questions'
+    && wf.postTriage.questions.some((q) => q.isPtnQuestion);
+
+  const composedKey = effectiveSvId
+    ? (hasPtn ? `${effectiveSvId}:${activePtn}` : effectiveSvId)
+    : '';
+  const steps = composedKey ? stepsFor(composedKey) : [];
 
   if (subVersions.length === 0) {
     return (
@@ -303,17 +319,26 @@ function ProcessStepsEditor({
     );
   }
 
+  const ptnTabs: Array<{ id: 'std' | 'outside'; label: string }> = [
+    { id: 'std', label: 'Standard' },
+    { id: 'outside', label: 'Outside PTN' },
+  ];
+
   return (
     <Card
       title="Generic process steps"
-      description="One ordered list per sub-version. Whichever sub-version the case resolves to, those steps show on the result page."
+      description={
+        hasPtn
+          ? 'One ordered list per sub-version × PTN variant. The active PTN question (in post-triage) decides which variant is shown on the result page.'
+          : 'One ordered list per sub-version. Whichever sub-version the case resolves to, those steps show on the result page.'
+      }
       actions={
-        effectiveSvId ? (
-          <Button size="sm" onClick={() => addStepFor(effectiveSvId)}>+ Add step</Button>
+        composedKey ? (
+          <Button size="sm" onClick={() => addStepFor(composedKey)}>+ Add step</Button>
         ) : undefined
       }
     >
-      <div className="flex flex-wrap gap-2 border-b border-slate-200 mb-4">
+      <div className="flex flex-wrap gap-2 border-b border-slate-200 mb-2">
         {subVersions.map((sv) => (
           <button
             key={sv.id}
@@ -324,32 +349,53 @@ function ProcessStepsEditor({
             }`}
           >
             {sv.name}
-            <span className="ml-2 text-xs text-slate-400">({stepsFor(sv.id).length})</span>
+            <span className="ml-2 text-xs text-slate-400">
+              ({hasPtn
+                ? stepsFor(`${sv.id}:std`).length + stepsFor(`${sv.id}:outside`).length
+                : stepsFor(sv.id).length})
+            </span>
           </button>
         ))}
       </div>
+      {hasPtn && (
+        <div className="flex flex-wrap gap-2 mb-4">
+          {ptnTabs.map((t) => (
+            <button
+              key={t.id}
+              type="button"
+              onClick={() => setActivePtn(t.id)}
+              className={`px-2.5 py-1 text-xs rounded ${
+                activePtn === t.id ? 'bg-brand-600 text-white' : 'bg-slate-100 text-slate-700'
+              }`}
+            >
+              {t.label}
+              <span className={`ml-1.5 ${activePtn === t.id ? 'text-white/70' : 'text-slate-400'}`}>
+                ({stepsFor(`${effectiveSvId}:${t.id}`).length})
+              </span>
+            </button>
+          ))}
+        </div>
+      )}
       <DragList
         items={steps}
-        onReorder={(next) => reorder(effectiveSvId, next)}
+        onReorder={(next) => reorder(composedKey, next)}
         renderItem={(s, handle) => (
           <div className="flex items-start gap-2 border rounded-md p-3 bg-white">
             {handle}
             <Textarea
               value={s.text}
-              onChange={(e) => updateStepFor(effectiveSvId, s.id, e.target.value)}
+              onChange={(e) => updateStepFor(composedKey, s.id, e.target.value)}
               className="flex-1"
             />
-            <Button size="sm" variant="ghost" onClick={() => removeStepFor(effectiveSvId, s.id)}>
+            <Button size="sm" variant="ghost" onClick={() => removeStepFor(composedKey, s.id)}>
               Delete
             </Button>
           </div>
         )}
       />
       {steps.length === 0 && (
-        <div className="text-xs text-slate-400 mt-2">No steps yet for this sub-version.</div>
+        <div className="text-xs text-slate-400 mt-2">No steps yet for this variant.</div>
       )}
-      {/* Keep workflow reference used to satisfy the linter (the steps are derived from it). */}
-      <input type="hidden" value={wf.id} readOnly />
     </Card>
   );
 }
@@ -467,6 +513,21 @@ function PostTriageQuestionsEditor({
                       />
                     )}
                   </div>
+                  {q.type === 'yesno' && (
+                    <Toggle
+                      checked={!!q.isPtnQuestion}
+                      onChange={(v) => {
+                        // Only one PTN question per workflow — clear flag on any others.
+                        const next = cfg.questions.map((other) =>
+                          other.id === q.id
+                            ? { ...other, isPtnQuestion: v }
+                            : { ...other, isPtnQuestion: v ? false : other.isPtnQuestion }
+                        );
+                        patch({ questions: next });
+                      }}
+                      label="Mark as PTN question (Yes/No answer splits generic process steps into Standard / Outside PTN variants)"
+                    />
+                  )}
                 </div>
                 <Button size="sm" variant="ghost" onClick={() => removeQ(q.id)}>Delete</Button>
               </div>

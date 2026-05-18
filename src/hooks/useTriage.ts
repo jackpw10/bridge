@@ -147,6 +147,9 @@ export interface UseTriageResult {
   callTypeName: string;
   subVersionId: string | null;  // null if no sub-version's rules match yet
   subVersionName: string;       // empty if not resolved
+  hasPtnQuestion: boolean;      // workflow's post-triage has a PTN-flagged question
+  ptnVariant: 'std' | 'outside' | null; // null if no PTN question or unanswered
+  processStepsKey: string | null; // composite key used to look up process steps
   hasReferralQuestion: boolean;
 
   answers: Record<string, string>;
@@ -274,11 +277,35 @@ export function useTriage(): UseTriageResult {
   const destFacility = facilities.find((f) => f.id === context.destFacId) ?? null;
   const sendingFacility = facilities.find((f) => f.id === context.facId) ?? null;
 
-  // ----- Process steps for the resolved sub-version -----
+  // ----- PTN variant (orthogonal axis: only affects generic process steps) -----
+  // If the workflow's post-triage has a question flagged `isPtnQuestion`, the
+  // process-step key is `${subVersionId}:${'std'|'outside'}`. Otherwise just
+  // the sub-version id.
+  const ptnQuestion = useMemo(() => {
+    if (!activeWorkflow || activeWorkflow.postTriage.mode !== 'questions') return null;
+    return activeWorkflow.postTriage.questions.find((q) => q.isPtnQuestion) ?? null;
+  }, [activeWorkflow]);
+
+  const ptnVariant: 'std' | 'outside' | null = useMemo(() => {
+    if (!ptnQuestion) return null;
+    const raw = (postTriageAnswers[ptnQuestion.id] ?? '').toLowerCase();
+    if (raw === 'yes') return 'outside';
+    if (raw === 'no') return 'std';
+    return null;
+  }, [ptnQuestion, postTriageAnswers]);
+
+  const processStepsKey: string | null = useMemo(() => {
+    if (!subVersionId) return null;
+    if (!ptnQuestion) return subVersionId;
+    if (!ptnVariant) return null;
+    return `${subVersionId}:${ptnVariant}`;
+  }, [subVersionId, ptnQuestion, ptnVariant]);
+
+  // ----- Process steps for the resolved sub-version (+ PTN variant if applicable) -----
   const activeProcessSteps = useMemo(() => {
-    if (!activeWorkflow || !subVersionId) return [];
-    return activeWorkflow.processSteps[subVersionId] ?? [];
-  }, [activeWorkflow, subVersionId]);
+    if (!activeWorkflow || !processStepsKey) return [];
+    return activeWorkflow.processSteps[processStepsKey] ?? [];
+  }, [activeWorkflow, processStepsKey]);
 
   const hasReferralQuestion = workflowQuestions.some((q) => q.type === 'referral_resolve');
 
@@ -322,6 +349,9 @@ export function useTriage(): UseTriageResult {
     callTypeName,
     subVersionId,
     subVersionName,
+    hasPtnQuestion: !!ptnQuestion,
+    ptnVariant,
+    processStepsKey,
     hasReferralQuestion,
     answers,
     currentIndex,

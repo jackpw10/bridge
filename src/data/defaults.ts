@@ -16,10 +16,8 @@ export const defaultCallTypes: CallType[] = [
     id: 'ct_high_acuity',
     name: 'High Acuity',
     subVersions: [
-      { id: 'llto_std', name: 'LLTO Standard' },
-      { id: 'llto_outside', name: 'LLTO Outside PTN' },
-      { id: 'hloc_std', name: 'HLOC Standard' },
-      { id: 'hloc_outside', name: 'HLOC Outside PTN' },
+      { id: 'llto', name: 'LLTO' },
+      { id: 'hloc', name: 'HLOC' },
     ],
   },
   {
@@ -30,14 +28,7 @@ export const defaultCallTypes: CallType[] = [
       { id: 'hloc', name: 'HLOC' },
     ],
   },
-  {
-    id: 'ct_repate',
-    name: 'Repate',
-    subVersions: [
-      { id: 'std', name: 'Standard' },
-      { id: 'outside', name: 'Outside PTN' },
-    ],
-  },
+  { id: 'ct_repate', name: 'Repate', subVersions: [{ id: 'default', name: 'Default' }] },
   { id: 'ct_scheduled', name: 'Scheduled', subVersions: [{ id: 'default', name: 'Default' }] },
   { id: 'ct_discharge', name: 'Discharge', subVersions: [{ id: 'default', name: 'Default' }] },
 ];
@@ -68,28 +59,24 @@ export const defaultWorkflows: Workflow[] = [
       mode: 'questions',
       showServicePreQuestions: true,
       questions: [
-        { id: 'ptq_ha_ptn', type: 'yesno', text: 'Was the patient accepted outside of PTN?' },
+        {
+          id: 'ptq_ha_ptn',
+          type: 'yesno',
+          text: 'Was the patient accepted outside of PTN?',
+          isPtnQuestion: true,
+        },
       ],
     },
     subVersionRules: {
-      llto_std: [
-        { qid: 'wfq_ha_triage', equals: 'Yes' },
-        { qid: 'ptq_ha_ptn', equals: 'No' },
-      ],
-      llto_outside: [
-        { qid: 'wfq_ha_triage', equals: 'Yes' },
-        { qid: 'ptq_ha_ptn', equals: 'Yes' },
-      ],
-      hloc_std: [
-        { qid: 'wfq_ha_triage', equals: 'No' },
-        { qid: 'ptq_ha_ptn', equals: 'No' },
-      ],
-      hloc_outside: [
-        { qid: 'wfq_ha_triage', equals: 'No' },
-        { qid: 'ptq_ha_ptn', equals: 'Yes' },
-      ],
+      llto: [{ qid: 'wfq_ha_triage', equals: 'Yes' }],
+      hloc: [{ qid: 'wfq_ha_triage', equals: 'No' }],
     },
-    processSteps: { llto_std: [], llto_outside: [], hloc_std: [], hloc_outside: [] },
+    processSteps: {
+      'llto:std': [],
+      'llto:outside': [],
+      'hloc:std': [],
+      'hloc:outside': [],
+    },
   },
 
   // -------- Advice --------
@@ -135,14 +122,16 @@ export const defaultWorkflows: Workflow[] = [
       mode: 'questions',
       showServicePreQuestions: true,
       questions: [
-        { id: 'ptq_rep_ptn', type: 'yesno', text: 'Was the patient accepted outside of PTN?' },
+        {
+          id: 'ptq_rep_ptn',
+          type: 'yesno',
+          text: 'Was the patient accepted outside of PTN?',
+          isPtnQuestion: true,
+        },
       ],
     },
-    subVersionRules: {
-      std: [{ qid: 'ptq_rep_ptn', equals: 'No' }],
-      outside: [{ qid: 'ptq_rep_ptn', equals: 'Yes' }],
-    },
-    processSteps: { std: [], outside: [] },
+    subVersionRules: { default: [] },
+    processSteps: { 'default:std': [], 'default:outside': [] },
   },
 
   // -------- Scheduled --------
