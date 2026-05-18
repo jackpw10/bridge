@@ -157,7 +157,7 @@ export function AdminSpecialtyDetailPage() {
         {callTypes.length === 0 ? (
           <div className="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded p-2">
             No call types defined yet. Add some in{' '}
-            <Link to="/admin/call-types" className="underline">Admin → Call Types</Link>{' '}
+            <Link to="/admin/workflow" className="underline">Admin → Triage workflows</Link>{' '}
             first.
           </div>
         ) : (
@@ -286,7 +286,7 @@ export function AdminSpecialtyDetailPage() {
             {callTypes.length === 0 && (
               <div className="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded p-2">
                 No call types defined yet. Add one in{' '}
-                <Link to="/admin/call-types" className="underline">Admin → Call Types</Link>.
+                <Link to="/admin/workflow" className="underline">Admin → Triage workflows</Link>.
               </div>
             )}
 

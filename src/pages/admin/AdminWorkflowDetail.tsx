@@ -21,6 +21,10 @@ import type {
 } from '../../types';
 import { uid } from '../../utils/id';
 
+// Workflows are paired 1:1 with call types. The list page at /admin/workflow
+// creates / renames / deletes the pair and edits sub-versions. This detail
+// page edits the workflow itself (questions, post-triage, process steps).
+
 const TYPES: { value: QuestionType; label: string }[] = [
   { value: 'yesno', label: 'Yes / No' },
   { value: 'dropdown', label: 'Dropdown' },
@@ -39,6 +43,7 @@ export function AdminWorkflowDetailPage() {
   const callTypes = useAppStore((s) => s.callTypes);
   const nav = useNavigate();
 
+  const setCallTypes = useAppStore((s) => s.setCallTypes);
   const wf = workflows.find((w) => w.id === id);
   const [editingQ, setEditingQ] = useState<WorkflowQuestion | null>(null);
   const [addingQ, setAddingQ] = useState(false);
@@ -60,9 +65,20 @@ export function AdminWorkflowDetailPage() {
     setWorkflows(workflows.map((w) => (w.id === wfRef.id ? { ...w, ...p } : w)));
   }
 
+  // Keep workflow name in sync with the paired call type name.
+  function renamePair(name: string) {
+    patch({ name });
+    if (activeCallType) {
+      setCallTypes(callTypes.map((c) => (c.id === activeCallType.id ? { ...c, name } : c)));
+    }
+  }
+
   function deleteWorkflow() {
-    if (!window.confirm('Delete this workflow?')) return;
+    if (!window.confirm('Delete this workflow (and its call type)?')) return;
     setWorkflows(workflows.filter((w) => w.id !== wfRef.id));
+    if (activeCallType) {
+      setCallTypes(callTypes.filter((c) => c.id !== activeCallType.id));
+    }
     nav('/admin/workflow');
   }
 
@@ -150,20 +166,8 @@ export function AdminWorkflowDetailPage() {
         <Button variant="ghost" onClick={deleteWorkflow}>Delete workflow</Button>
       </div>
 
-      <Card title="Identity">
-        <div className="grid grid-cols-2 gap-3">
-          <Input label="Name" value={wf.name} onChange={(e) => patch({ name: e.target.value })} />
-          <Select
-            label="Call type"
-            value={wf.callTypeId}
-            onChange={(e) => patch({ callTypeId: e.target.value })}
-          >
-            <option value="">— pick one —</option>
-            {callTypes.map((ct) => (
-              <option key={ct.id} value={ct.id}>{ct.name}</option>
-            ))}
-          </Select>
-        </div>
+      <Card title="Identity" description="Renaming here renames the paired call type. Sub-versions are managed on the workflows list.">
+        <Input label="Name" value={wf.name} onChange={(e) => renamePair(e.target.value)} />
       </Card>
 
       {activeCallType && activeCallType.subVersions.length > 0 && (
@@ -296,67 +300,61 @@ function ProcessStepsEditor({
   reorder: (svId: string, next: ProcessStep[]) => void;
 }) {
   const subVersions = callType?.subVersions ?? [];
-  const effectiveSvId = activeSvId || subVersions[0]?.id || '';
+  const hasSubVersions = subVersions.length > 0;
+  // When the call type has no sub-versions, internally store under 'default'.
+  const effectiveSvId = hasSubVersions ? (activeSvId || subVersions[0]?.id || '') : 'default';
 
   // PTN-aware: if the workflow's post-triage has an isPtnQuestion, process
   // steps are stored under `${svId}:${'std'|'outside'}`. Otherwise just `${svId}`.
   const hasPtn = wf.postTriage.mode === 'questions'
     && wf.postTriage.questions.some((q) => q.isPtnQuestion);
 
-  const composedKey = effectiveSvId
-    ? (hasPtn ? `${effectiveSvId}:${activePtn}` : effectiveSvId)
-    : '';
-  const steps = composedKey ? stepsFor(composedKey) : [];
-
-  if (subVersions.length === 0) {
-    return (
-      <Card title="Generic process steps">
-        <div className="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded p-2">
-          This workflow's call type has no sub-versions. Add at least one in Admin → Call Types
-          before configuring process steps.
-        </div>
-      </Card>
-    );
-  }
+  const composedKey = hasPtn ? `${effectiveSvId}:${activePtn}` : effectiveSvId;
+  const steps = stepsFor(composedKey);
 
   const ptnTabs: Array<{ id: 'std' | 'outside'; label: string }> = [
     { id: 'std', label: 'Standard' },
     { id: 'outside', label: 'Outside PTN' },
   ];
 
+  let description: string;
+  if (hasSubVersions && hasPtn) {
+    description = 'One ordered list per sub-version × PTN variant. The PTN question (in post-triage) decides which variant fires.';
+  } else if (hasSubVersions) {
+    description = 'One ordered list per sub-version. Whichever sub-version the case resolves to, those steps show on the result page.';
+  } else if (hasPtn) {
+    description = 'Two ordered lists: Standard and Outside PTN. The PTN question (in post-triage) decides which fires.';
+  } else {
+    description = 'A single ordered list of process steps shown on the result page.';
+  }
+
   return (
     <Card
       title="Generic process steps"
-      description={
-        hasPtn
-          ? 'One ordered list per sub-version × PTN variant. The active PTN question (in post-triage) decides which variant is shown on the result page.'
-          : 'One ordered list per sub-version. Whichever sub-version the case resolves to, those steps show on the result page.'
-      }
-      actions={
-        composedKey ? (
-          <Button size="sm" onClick={() => addStepFor(composedKey)}>+ Add step</Button>
-        ) : undefined
-      }
+      description={description}
+      actions={<Button size="sm" onClick={() => addStepFor(composedKey)}>+ Add step</Button>}
     >
-      <div className="flex flex-wrap gap-2 border-b border-slate-200 mb-2">
-        {subVersions.map((sv) => (
-          <button
-            key={sv.id}
-            type="button"
-            onClick={() => setActiveSvId(sv.id)}
-            className={`px-3 py-2 text-sm font-medium border-b-2 ${
-              effectiveSvId === sv.id ? 'border-brand-600 text-brand-700' : 'border-transparent text-slate-500'
-            }`}
-          >
-            {sv.name}
-            <span className="ml-2 text-xs text-slate-400">
-              ({hasPtn
-                ? stepsFor(`${sv.id}:std`).length + stepsFor(`${sv.id}:outside`).length
-                : stepsFor(sv.id).length})
-            </span>
-          </button>
-        ))}
-      </div>
+      {hasSubVersions && (
+        <div className="flex flex-wrap gap-2 border-b border-slate-200 mb-2">
+          {subVersions.map((sv) => (
+            <button
+              key={sv.id}
+              type="button"
+              onClick={() => setActiveSvId(sv.id)}
+              className={`px-3 py-2 text-sm font-medium border-b-2 ${
+                effectiveSvId === sv.id ? 'border-brand-600 text-brand-700' : 'border-transparent text-slate-500'
+              }`}
+            >
+              {sv.name}
+              <span className="ml-2 text-xs text-slate-400">
+                ({hasPtn
+                  ? stepsFor(`${sv.id}:std`).length + stepsFor(`${sv.id}:outside`).length
+                  : stepsFor(sv.id).length})
+              </span>
+            </button>
+          ))}
+        </div>
+      )}
       {hasPtn && (
         <div className="flex flex-wrap gap-2 mb-4">
           {ptnTabs.map((t) => (
@@ -394,7 +392,7 @@ function ProcessStepsEditor({
         )}
       />
       {steps.length === 0 && (
-        <div className="text-xs text-slate-400 mt-2">No steps yet for this variant.</div>
+        <div className="text-xs text-slate-400 mt-2">No steps yet here.</div>
       )}
     </Card>
   );
