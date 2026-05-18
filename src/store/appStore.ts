@@ -245,106 +245,20 @@ async function migrateV5() {
 // handles the now-correct transition (only runs if llto_std IS present —
 // i.e. legacy data needing collapse).
 
-// =========================================================================
-// MIGRATION v3: rewrite call types to be workflow-types (High Acuity etc.),
-// each with optional sub-versions (e.g. High Acuity has LLTO/HLOC). Service
-// templates become nested by (callType, subVersion). Per the user's call,
-// service-template CONTENT is wiped — admins repopulate via the UI.
-// Runs idempotently: detection key is whether `ct_high_acuity` exists.
-// =========================================================================
-async function migrateV3() {
-  const { data: existingHighAcuity } = await supabase
-    .from('call_types')
-    .select('id')
-    .eq('id', 'ct_high_acuity')
-    .maybeSingle();
-  if (existingHighAcuity) return; // already migrated
-
-  // 1) Replace call_types with the new defaults.
-  await supabase.from('call_types').delete().neq('id', '__none__');
-  await supabase.from('call_types').insert(defaultCallTypes.map(callTypeToRow));
-
-  // 2) Wipe service template content. (transportAdvisor cards keep config
-  //    but their callTypeIds get cleared since those referenced the old IDs.)
-  const { data: svcs } = await supabase.from('specialty_services').select('id, transport_advisor');
-  for (const s of (svcs ?? []) as Array<{ id: string; transport_advisor: unknown }>) {
-    const ta = (s.transport_advisor as { enabled?: boolean; cards?: Array<Record<string, unknown>> } | null) ?? null;
-    const cards = (ta?.cards ?? []).map((c) => ({ ...c, callTypeIds: [] }));
-    await supabase
-      .from('specialty_services')
-      .update({ templates: {}, transport_advisor: { enabled: ta?.enabled ?? false, cards } })
-      .eq('id', s.id);
-  }
-
-  // 3) Wipe card overrides — they referenced the old call type IDs.
-  await supabase.from('card_overrides').delete().neq('id', '__none__');
-
-  // 4) Migrate workflows.
-  const { data: wfs } = await supabase
-    .from('workflows')
-    .select('id, name, call_type_id, questions, post_triage, process_steps');
-  for (const w of (wfs ?? []) as Array<{
-    id: string;
-    name: string;
-    call_type_id: string;
-    questions: unknown;
-    post_triage: unknown;
-    process_steps: unknown;
-  }>) {
-    const questions = ((w.questions as Array<Record<string, unknown>>) ?? []).map((q) => {
-      if (q.type === 'triage') return { ...q, type: 'yesno' };
-      return q;
-    }) as unknown as Workflow['questions'];
-
-    // Try to detect a triage question (yes/no with LLTO/HLOC in text) for the resolver.
-    const triageQ = (questions as unknown as Array<Record<string, unknown>>).find(
-      (q) =>
-        q.type === 'yesno' &&
-        typeof q.text === 'string' &&
-        /llto|hloc/i.test(q.text as string)
-    );
-
-    // Pick a new call type. Default to ct_high_acuity since the existing
-    // workflow was the High Acuity Workflow.
-    const callTypeId = 'ct_high_acuity';
-
-    void triageQ;
-
-    // Wrap post_triage in the new union shape (questions mode).
-    const ptObj = (w.post_triage as { enabled?: boolean; showServicePreQuestions?: boolean; questions?: unknown[] } | null) ?? null;
-    const post_triage = ptObj?.enabled
-      ? {
-          mode: 'questions',
-          showServicePreQuestions: !!ptObj.showServicePreQuestions,
-          questions: ptObj.questions ?? [],
-        }
-      : { mode: 'none' };
-
-    await supabase
-      .from('workflows')
-      .update({
-        call_type_id: callTypeId,
-        questions,
-        post_triage,
-        process_steps: {},
-        sub_version_rules: {},
-      })
-      .eq('id', w.id);
-  }
-
-  // 5) Facility notification requirements: clear callTypeIds (old IDs are gone).
-  const { data: facs } = await supabase
-    .from('facilities')
-    .select('id, notification_requirements');
-  for (const f of (facs ?? []) as Array<{ id: string; notification_requirements: unknown }>) {
-    const arr = (f.notification_requirements as Array<Record<string, unknown>>) ?? [];
-    const next = arr.map((nr) => ({ ...nr, callTypeIds: [] }));
-    await supabase
-      .from('facilities')
-      .update({ notification_requirements: next })
-      .eq('id', f.id);
-  }
-}
+// NOTE: A migration v3 used to live here. It was intentionally removed
+// because its detection ("skip if `ct_high_acuity` row exists") was too
+// fragile: if an admin deleted the seeded High Acuity workflow (which
+// removes `ct_high_acuity`), v3 would re-run on the next page load and
+// destructively (a) delete every call_type — including user-created
+// ones — (b) reseed the 5 defaults, (c) wipe service-template content,
+// (d) delete every card override, (e) reassign every workflow to
+// `ct_high_acuity` and clear its process_steps + sub_version_rules.
+//
+// Fresh setups are now handled entirely by seedIfEmpty below (which seeds
+// defaults only when a table is empty, and which already has its own
+// legacy-singleton fallback for the workflows table). The original v3
+// also "translated" pre-v3 workflow shape into the new union, but no
+// users remain on that pre-v3 shape, so the translation is dead code.
 
 async function seedIfEmpty() {
   // Workflows: if empty, look for legacy data first; otherwise seed defaults.
@@ -418,7 +332,6 @@ async function seedIfEmpty() {
 
 export async function loadAllData(): Promise<void> {
   try {
-    await migrateV3();
     await migrateV5();
     await seedIfEmpty();
     const [

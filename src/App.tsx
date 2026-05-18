@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { Component, useEffect, type ErrorInfo, type ReactNode } from 'react';
 import { Navigate, Route, Routes } from 'react-router-dom';
 import { LoginPage } from './pages/Login';
 import { SignupPage } from './pages/Signup';
@@ -58,6 +58,44 @@ function ErrorScreen({ message }: { message: string }) {
   );
 }
 
+// Catches render-time exceptions in any descendant and shows a useful screen
+// instead of a blank page. Without this, an unhandled crash anywhere in the
+// route tree leaves the user with a white screen and no path to recovery.
+class AppErrorBoundary extends Component<{ children: ReactNode }, { error: Error | null }> {
+  state = { error: null as Error | null };
+  static getDerivedStateFromError(error: Error) {
+    return { error };
+  }
+  componentDidCatch(error: Error, info: ErrorInfo) {
+    console.error('Unhandled render error:', error, info);
+  }
+  render() {
+    if (!this.state.error) return this.props.children;
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-red-50 text-red-900 p-6">
+        <div className="max-w-lg">
+          <h1 className="text-xl font-bold mb-2">Something went wrong</h1>
+          <p className="text-sm mb-3">
+            The page hit an unexpected error. Your data is still in the backend —
+            reload to recover. If this keeps happening, share the message below.
+          </p>
+          <pre className="text-xs bg-white border border-red-200 rounded p-3 overflow-auto whitespace-pre-wrap">
+            {this.state.error.message}
+            {this.state.error.stack ? `\n\n${this.state.error.stack}` : ''}
+          </pre>
+          <button
+            type="button"
+            onClick={() => window.location.reload()}
+            className="mt-3 px-3 py-1.5 text-sm bg-red-600 text-white rounded hover:bg-red-700"
+          >
+            Reload
+          </button>
+        </div>
+      </div>
+    );
+  }
+}
+
 export default function App() {
   const loading = useAppStore((s) => s.loading);
   const error = useAppStore((s) => s.error);
@@ -70,6 +108,7 @@ export default function App() {
   if (loading) return <BootScreen />;
 
   return (
+    <AppErrorBoundary>
     <Routes>
       <Route path="/login" element={<LoginPage />} />
       <Route path="/signup" element={<SignupPage />} />
@@ -186,5 +225,6 @@ export default function App() {
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
+    </AppErrorBoundary>
   );
 }

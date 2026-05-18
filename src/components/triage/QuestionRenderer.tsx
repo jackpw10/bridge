@@ -133,6 +133,7 @@ export function QuestionRenderer({ question, answers, setAnswer }: Props) {
     })();
     return (
       <MultiSelect
+        autoFocus
         options={opts}
         value={svcs}
         onChange={(v) => {
@@ -153,6 +154,7 @@ export function QuestionRenderer({ question, answers, setAnswer }: Props) {
     })();
     return (
       <MultiSelect
+        autoFocus
         options={opts}
         value={dxs}
         onChange={(v) => {

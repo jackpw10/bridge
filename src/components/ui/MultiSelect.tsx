@@ -9,6 +9,7 @@ interface Props {
   placeholder?: string;
   label?: string;
   className?: string;
+  autoFocus?: boolean;
 }
 
 export function MultiSelect({
@@ -18,8 +19,9 @@ export function MultiSelect({
   placeholder = 'Pick one or more…',
   label,
   className,
+  autoFocus,
 }: Props) {
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(!!autoFocus);
   const [query, setQuery] = useState('');
   const [activeIndex, setActiveIndex] = useState(0);
   const ref = useRef<HTMLDivElement>(null);

@@ -211,8 +211,31 @@ export function ResultPage() {
     nav('/triage');
   }
 
+  // If the workflow couldn't be loaded (e.g. it was deleted while the case
+  // was in progress, or realtime sync raced), show a clear error rather than
+  // rendering a tree full of empty placeholders.
+  if (!t.activeWorkflow) {
+    return (
+      <div className="space-y-4">
+        <div>
+          <h1 className="text-2xl font-bold text-slate-800">IFT Triage Result</h1>
+        </div>
+        <Card>
+          <div className="space-y-3">
+            <div className="text-sm text-red-700 bg-red-50 border border-red-200 rounded p-3">
+              <strong>The workflow for this case is no longer available.</strong> It may
+              have been deleted, or the page lost its connection. Start a new case from
+              the triage tab.
+            </div>
+            <Button onClick={() => { t.reset(); nav('/triage'); }}>Back to triage</Button>
+          </div>
+        </Card>
+      </div>
+    );
+  }
+
   // If no sub-version resolved, show an error state.
-  if (!t.subVersionId && (t.activeWorkflow?.callTypeId)) {
+  if (!t.subVersionId && t.activeWorkflow.callTypeId) {
     return (
       <div className="space-y-4">
         <div>
