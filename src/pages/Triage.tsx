@@ -126,6 +126,46 @@ export function TriagePage() {
     return !!t.answers[cur.id];
   }
 
+  // Keyboard shortcuts during the workflow question phase:
+  //   Y / N → select Yes / No on yes/no questions (when no input is focused)
+  //   Enter → advance, unless focus is in a textarea (lets user type newlines
+  //           in the Additional Information notes) or a child handler already
+  //           consumed it (e.g. Combobox committing an open dropdown).
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.repeat) return;
+      if (e.defaultPrevented) return;
+      const target = e.target as HTMLElement | null;
+      const tag = target?.tagName ?? '';
+      const inEditable = tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT';
+
+      if (cur.type === 'yesno' || cur.type === 'triage') {
+        if (!inEditable) {
+          if (e.key === 'y' || e.key === 'Y') {
+            e.preventDefault();
+            t.setAnswer(cur.id, 'Yes');
+            return;
+          }
+          if (e.key === 'n' || e.key === 'N') {
+            e.preventDefault();
+            t.setAnswer(cur.id, 'No');
+            return;
+          }
+        }
+      }
+
+      if (e.key === 'Enter') {
+        if (tag === 'TEXTAREA') return;
+        if (canAdvance()) {
+          e.preventDefault();
+          t.goNext();
+        }
+      }
+    }
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  });
+
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
@@ -145,7 +185,7 @@ export function TriagePage() {
               <Badge tone="purple" className="mt-1">Yes → LLTO · No → HLOC</Badge>
             )}
           </div>
-          <QuestionRenderer question={cur} answers={t.answers} setAnswer={t.setAnswer} />
+          <QuestionRenderer key={cur.id} question={cur} answers={t.answers} setAnswer={t.setAnswer} />
         </div>
       </Card>
 

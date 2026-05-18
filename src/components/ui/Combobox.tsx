@@ -16,6 +16,7 @@ interface Props {
   disabled?: boolean;
   className?: string;
   allowEmpty?: boolean;
+  autoFocus?: boolean;
 }
 
 export function Combobox({
@@ -27,12 +28,18 @@ export function Combobox({
   disabled,
   className,
   allowEmpty,
+  autoFocus,
 }: Props) {
   const [query, setQuery] = useState('');
   const [open, setOpen] = useState(false);
   const [activeIndex, setActiveIndex] = useState(0);
   const rootRef = useRef<HTMLDivElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (autoFocus) inputRef.current?.focus();
+  }, [autoFocus]);
 
   const display =
     options.find((o) => o.value === value)?.label ?? (value ? value : '');
@@ -128,6 +135,7 @@ export function Combobox({
         </label>
       )}
       <input
+        ref={inputRef}
         type="text"
         disabled={disabled}
         value={query}

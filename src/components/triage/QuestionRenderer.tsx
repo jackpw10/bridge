@@ -1,6 +1,6 @@
 import type { WorkflowQuestion } from '../../types';
 import { useAppStore } from '../../store/appStore';
-import { Input, Select, Textarea } from '../ui/Input';
+import { Input, Select } from '../ui/Input';
 import { Combobox } from '../ui/Combobox';
 import { MultiSelect } from '../ui/MultiSelect';
 import { Button } from '../ui/Button';
@@ -45,7 +45,11 @@ export function QuestionRenderer({ question, answers, setAnswer }: Props) {
 
   if (question.type === 'dropdown') {
     return (
-      <Select value={value} onChange={(e) => setAnswer(question.id, e.target.value)}>
+      <Select
+        autoFocus
+        value={value}
+        onChange={(e) => setAnswer(question.id, e.target.value)}
+      >
         <option value="">— select —</option>
         {(question.options ?? []).map((o) => (
           <option key={o.label} value={o.label}>
@@ -58,7 +62,8 @@ export function QuestionRenderer({ question, answers, setAnswer }: Props) {
 
   if (question.type === 'text') {
     return (
-      <Textarea
+      <Input
+        autoFocus
         value={value}
         onChange={(e) => setAnswer(question.id, e.target.value)}
         placeholder="Type here…"
@@ -73,6 +78,7 @@ export function QuestionRenderer({ question, answers, setAnswer }: Props) {
     return (
       <div className="space-y-2">
         <Combobox
+          autoFocus
           options={opts}
           value={facId}
           allowEmpty

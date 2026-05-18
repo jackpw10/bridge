@@ -29,6 +29,19 @@ export function AdminWorkflowPage() {
     return m;
   }, [workflows]);
 
+  // Workflows that don't reference an existing call type — orphaned by the
+  // merger or by deleting a call type. Surfaced separately so admins can clean
+  // them up; otherwise they'd be invisible (the list iterates call types).
+  const orphanWorkflows = useMemo(() => {
+    const ctIds = new Set(callTypes.map((c) => c.id));
+    return workflows.filter((w) => !ctIds.has(w.callTypeId));
+  }, [workflows, callTypes]);
+
+  async function deleteOrphanWorkflow(wfId: string) {
+    if (!window.confirm('Delete this orphan workflow? It has no paired call type.')) return;
+    await setWorkflows(workflows.filter((w) => w.id !== wfId));
+  }
+
   const usage = useMemo(() => {
     const m = new Map<string, { serviceTemplates: string[]; taCards: string[]; notifReqs: number }>();
     for (const ct of callTypes) m.set(ct.id, { serviceTemplates: [], taCards: [], notifReqs: 0 });
@@ -175,6 +188,25 @@ export function AdminWorkflowPage() {
           )}
         </div>
       </Card>
+
+      {orphanWorkflows.length > 0 && (
+        <Card
+          title="Orphan workflows"
+          description="Workflows whose call type no longer exists (left over from earlier versions, or from deleting a call type). They are hidden from the triage start dropdown. Delete them here to clean up."
+        >
+          <div className="divide-y divide-slate-100">
+            {orphanWorkflows.map((w) => (
+              <div key={w.id} className="py-2 flex items-center justify-between">
+                <div>
+                  <div className="text-sm font-medium text-slate-700">{w.name}</div>
+                  <div className="text-xs text-slate-400">missing call type: {w.callTypeId || '(none)'}</div>
+                </div>
+                <Button size="sm" variant="ghost" onClick={() => deleteOrphanWorkflow(w.id)}>Delete</Button>
+              </div>
+            ))}
+          </div>
+        </Card>
+      )}
     </div>
   );
 }
