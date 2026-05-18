@@ -16,8 +16,10 @@ export const defaultCallTypes: CallType[] = [
     id: 'ct_high_acuity',
     name: 'High Acuity',
     subVersions: [
-      { id: 'llto', name: 'LLTO' },
-      { id: 'hloc', name: 'HLOC' },
+      { id: 'llto_std', name: 'LLTO Standard' },
+      { id: 'llto_outside', name: 'LLTO Outside PTN' },
+      { id: 'hloc_std', name: 'HLOC Standard' },
+      { id: 'hloc_outside', name: 'HLOC Outside PTN' },
     ],
   },
   {
@@ -28,9 +30,16 @@ export const defaultCallTypes: CallType[] = [
       { id: 'hloc', name: 'HLOC' },
     ],
   },
-  { id: 'ct_repate', name: 'Repate', subVersions: [] },
-  { id: 'ct_scheduled', name: 'Scheduled', subVersions: [] },
-  { id: 'ct_discharge', name: 'Discharge', subVersions: [] },
+  {
+    id: 'ct_repate',
+    name: 'Repate',
+    subVersions: [
+      { id: 'std', name: 'Standard' },
+      { id: 'outside', name: 'Outside PTN' },
+    ],
+  },
+  { id: 'ct_scheduled', name: 'Scheduled', subVersions: [{ id: 'default', name: 'Default' }] },
+  { id: 'ct_discharge', name: 'Discharge', subVersions: [{ id: 'default', name: 'Default' }] },
 ];
 
 export const defaultHealthAuthorities: HealthAuthority[] = [
@@ -44,10 +53,6 @@ export const defaultWorkflows: Workflow[] = [
     id: 'wf_high_acuity',
     name: 'High Acuity',
     callTypeId: 'ct_high_acuity',
-    subVersionResolver: {
-      questionId: 'wfq_ha_triage',
-      answerMap: { Yes: 'llto', No: 'hloc' },
-    },
     questions: [
       { id: 'wfq_ha_sending', type: 'facility', text: 'Sending facility' },
       {
@@ -66,7 +71,25 @@ export const defaultWorkflows: Workflow[] = [
         { id: 'ptq_ha_ptn', type: 'yesno', text: 'Was the patient accepted outside of PTN?' },
       ],
     },
-    processSteps: [],
+    subVersionRules: {
+      llto_std: [
+        { qid: 'wfq_ha_triage', equals: 'Yes' },
+        { qid: 'ptq_ha_ptn', equals: 'No' },
+      ],
+      llto_outside: [
+        { qid: 'wfq_ha_triage', equals: 'Yes' },
+        { qid: 'ptq_ha_ptn', equals: 'Yes' },
+      ],
+      hloc_std: [
+        { qid: 'wfq_ha_triage', equals: 'No' },
+        { qid: 'ptq_ha_ptn', equals: 'No' },
+      ],
+      hloc_outside: [
+        { qid: 'wfq_ha_triage', equals: 'No' },
+        { qid: 'ptq_ha_ptn', equals: 'Yes' },
+      ],
+    },
+    processSteps: { llto_std: [], llto_outside: [], hloc_std: [], hloc_outside: [] },
   },
 
   // -------- Advice --------
@@ -74,10 +97,6 @@ export const defaultWorkflows: Workflow[] = [
     id: 'wf_advice',
     name: 'Advice',
     callTypeId: 'ct_advice',
-    subVersionResolver: {
-      questionId: 'wfq_adv_triage',
-      answerMap: { Yes: 'llto', No: 'hloc' },
-    },
     questions: [
       { id: 'wfq_adv_sending', type: 'facility', text: 'Sending facility' },
       {
@@ -94,7 +113,11 @@ export const defaultWorkflows: Workflow[] = [
       showServicePreQuestions: true,
       questions: [],
     },
-    processSteps: [],
+    subVersionRules: {
+      llto: [{ qid: 'wfq_adv_triage', equals: 'Yes' }],
+      hloc: [{ qid: 'wfq_adv_triage', equals: 'No' }],
+    },
+    processSteps: { llto: [], hloc: [] },
   },
 
   // -------- Repate --------
@@ -115,7 +138,11 @@ export const defaultWorkflows: Workflow[] = [
         { id: 'ptq_rep_ptn', type: 'yesno', text: 'Was the patient accepted outside of PTN?' },
       ],
     },
-    processSteps: [],
+    subVersionRules: {
+      std: [{ qid: 'ptq_rep_ptn', equals: 'No' }],
+      outside: [{ qid: 'ptq_rep_ptn', equals: 'Yes' }],
+    },
+    processSteps: { std: [], outside: [] },
   },
 
   // -------- Scheduled --------
@@ -124,20 +151,10 @@ export const defaultWorkflows: Workflow[] = [
     name: 'Scheduled',
     callTypeId: 'ct_scheduled',
     questions: [
-      {
-        id: 'wfq_sch_sending',
-        type: 'facility',
-        text: 'Sending facility (or address)',
-        allowFreeText: true,
-      },
+      { id: 'wfq_sch_sending', type: 'facility', text: 'Sending facility (or address)', allowFreeText: true },
       { id: 'wfq_sch_dx', type: 'diagnosis_multi', text: 'Working / suspected diagnoses' },
       { id: 'wfq_sch_svc', type: 'specialty_multi', text: 'Which specialty service(s) are required?' },
-      {
-        id: 'wfq_sch_receiving',
-        type: 'receiving_facility',
-        text: 'Receiving facility (or address)',
-        allowFreeText: true,
-      },
+      { id: 'wfq_sch_receiving', type: 'receiving_facility', text: 'Receiving facility (or address)', allowFreeText: true },
     ],
     postTriage: {
       mode: 'transport_requirements',
@@ -152,14 +169,11 @@ export const defaultWorkflows: Workflow[] = [
             { id: 'pt', label: 'Patient transport' },
           ],
         },
-        {
-          id: 'tr_notes',
-          type: 'text',
-          label: 'Additional transport notes',
-        },
+        { id: 'tr_notes', type: 'text', label: 'Additional transport notes' },
       ],
     },
-    processSteps: [],
+    subVersionRules: { default: [] },     // single sub-version, always matches
+    processSteps: { default: [] },
   },
 
   // -------- Discharge --------
@@ -168,20 +182,10 @@ export const defaultWorkflows: Workflow[] = [
     name: 'Discharge',
     callTypeId: 'ct_discharge',
     questions: [
-      {
-        id: 'wfq_dis_sending',
-        type: 'facility',
-        text: 'Sending facility (or address)',
-        allowFreeText: true,
-      },
+      { id: 'wfq_dis_sending', type: 'facility', text: 'Sending facility (or address)', allowFreeText: true },
       { id: 'wfq_dis_dx', type: 'diagnosis_multi', text: 'Working / suspected diagnoses' },
       { id: 'wfq_dis_svc', type: 'specialty_multi', text: 'Which specialty service(s) are required?' },
-      {
-        id: 'wfq_dis_receiving',
-        type: 'receiving_facility',
-        text: 'Receiving facility (or address)',
-        allowFreeText: true,
-      },
+      { id: 'wfq_dis_receiving', type: 'receiving_facility', text: 'Receiving facility (or address)', allowFreeText: true },
     ],
     postTriage: {
       mode: 'transport_requirements',
@@ -196,14 +200,11 @@ export const defaultWorkflows: Workflow[] = [
             { id: 'pt', label: 'Patient transport' },
           ],
         },
-        {
-          id: 'tr_dis_notes',
-          type: 'text',
-          label: 'Additional transport notes',
-        },
+        { id: 'tr_dis_notes', type: 'text', label: 'Additional transport notes' },
       ],
     },
-    processSteps: [],
+    subVersionRules: { default: [] },
+    processSteps: { default: [] },
   },
 ];
 

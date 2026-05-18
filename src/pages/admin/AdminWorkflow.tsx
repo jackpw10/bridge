@@ -22,9 +22,10 @@ export function AdminWorkflowPage() {
       id: uid('wf'),
       name: 'New workflow',
       callTypeId: firstCallType,
+      subVersionRules: {},
       questions: [],
       postTriage: { mode: 'none' },
-      processSteps: [],
+      processSteps: {},
     };
     setWorkflows([...workflows, next]);
   }

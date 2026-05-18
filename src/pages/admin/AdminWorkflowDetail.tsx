@@ -42,6 +42,7 @@ export function AdminWorkflowDetailPage() {
   const wf = workflows.find((w) => w.id === id);
   const [editingQ, setEditingQ] = useState<WorkflowQuestion | null>(null);
   const [addingQ, setAddingQ] = useState(false);
+  const [psTabSvId, setPsTabSvId] = useState<string>('');
 
   if (!wf) {
     return (
@@ -80,21 +81,26 @@ export function AdminWorkflowDetailPage() {
     patch({ questions: next });
   }
 
-  // ---- process steps ----
-  function addStep() {
-    const step: ProcessStep = { id: uid('ps'), text: 'New step' };
-    patch({ processSteps: [...wfRef.processSteps, step] });
+  // ---- process steps (per sub-version) ----
+  function stepsFor(svId: string): ProcessStep[] {
+    return wfRef.processSteps[svId] ?? [];
   }
-  function updateStep(sid: string, p: Partial<ProcessStep>) {
-    patch({
-      processSteps: wfRef.processSteps.map((s) => (s.id === sid ? { ...s, ...p } : s)),
-    });
+  function patchStepsFor(svId: string, steps: ProcessStep[]) {
+    patch({ processSteps: { ...wfRef.processSteps, [svId]: steps } });
   }
-  function removeStep(sid: string) {
-    patch({ processSteps: wfRef.processSteps.filter((s) => s.id !== sid) });
+  function addStepFor(svId: string) {
+    patchStepsFor(svId, [...stepsFor(svId), { id: uid('ps'), text: 'New step' }]);
   }
-  function reorderSteps(next: ProcessStep[]) {
-    patch({ processSteps: next });
+  function updateStepFor(svId: string, sid: string, text: string) {
+    patchStepsFor(svId, stepsFor(svId).map((s) => (s.id === sid ? { ...s, text } : s)));
+  }
+  function removeStepFor(svId: string, sid: string) {
+    patchStepsFor(svId, stepsFor(svId).filter((s) => s.id !== sid));
+  }
+
+  // ---- sub-version rules ----
+  function patchSubVersionRule(svId: string, rules: Condition[]) {
+    patch({ subVersionRules: { ...wfRef.subVersionRules, [svId]: rules } });
   }
 
   // ---- post-triage helpers ----
@@ -161,14 +167,21 @@ export function AdminWorkflowDetailPage() {
 
       {activeCallType && activeCallType.subVersions.length > 0 && (
         <Card
-          title="Sub-version resolver"
-          description={`${activeCallType.name} has sub-versions (${activeCallType.subVersions.map((s) => s.name).join(', ')}). Pick which workflow question's answer determines the sub-version for each case.`}
+          title="Sub-version selection rules"
+          description={`${activeCallType.name} has these sub-versions: ${activeCallType.subVersions.map((s) => s.name).join(', ')}. For each one, list the conditions that must ALL be true for a case to be that sub-version. First matching wins.`}
         >
-          <SubVersionResolverEditor
-            workflow={wfRef}
-            callType={activeCallType}
-            onChange={(r) => patch({ subVersionResolver: r })}
-          />
+          <div className="space-y-4">
+            {activeCallType.subVersions.map((sv) => (
+              <div key={sv.id} className="border rounded-md p-3 bg-slate-50">
+                <div className="font-semibold text-sm mb-2">{sv.name}</div>
+                <ConditionEditor
+                  value={wfRef.subVersionRules[sv.id] ?? []}
+                  onChange={(r) => patchSubVersionRule(sv.id, r)}
+                  references={allCondRefs}
+                />
+              </div>
+            ))}
+          </div>
         </Card>
       )}
 
@@ -230,41 +243,17 @@ export function AdminWorkflowDetailPage() {
         </div>
       </Card>
 
-      <Card
-        title="Generic process steps"
-        description="Shown on the result page. Each step can require any combination of workflow / post-triage answers (all must match)."
-        actions={<Button size="sm" onClick={addStep}>+ Add step</Button>}
-      >
-        <DragList
-          items={wf.processSteps}
-          onReorder={reorderSteps}
-          renderItem={(s, handle) => (
-            <div className="border rounded-md p-3 bg-white">
-              <div className="flex items-start gap-2">
-                {handle}
-                <div className="flex-1 space-y-2">
-                  <Textarea value={s.text} onChange={(e) => updateStep(s.id, { text: e.target.value })} />
-                  <ConditionEditor
-                    value={resolveConds(s)}
-                    onChange={(conds) =>
-                      updateStep(s.id, {
-                        conditions: conds,
-                        condQid: undefined,
-                        condVal: undefined,
-                      })
-                    }
-                    references={allCondRefs}
-                  />
-                </div>
-                <Button size="sm" variant="ghost" onClick={() => removeStep(s.id)}>Delete</Button>
-              </div>
-            </div>
-          )}
-        />
-        {wf.processSteps.length === 0 && (
-          <div className="text-xs text-slate-400 mt-2">No process steps yet.</div>
-        )}
-      </Card>
+      <ProcessStepsEditor
+        wf={wfRef}
+        callType={activeCallType}
+        activeSvId={psTabSvId}
+        setActiveSvId={setPsTabSvId}
+        stepsFor={stepsFor}
+        addStepFor={addStepFor}
+        updateStepFor={updateStepFor}
+        removeStepFor={removeStepFor}
+        reorder={(svId, next) => patchStepsFor(svId, next)}
+      />
 
       {(editingQ || addingQ) && (
         <QuestionEditor
@@ -278,10 +267,91 @@ export function AdminWorkflowDetailPage() {
   );
 }
 
-function resolveConds(s: { condQid?: string; condVal?: string; conditions?: Condition[] }): Condition[] {
-  if (s.conditions && s.conditions.length > 0) return s.conditions;
-  if (s.condQid && s.condVal !== undefined) return [{ qid: s.condQid, equals: s.condVal }];
-  return [];
+function ProcessStepsEditor({
+  wf,
+  callType,
+  activeSvId,
+  setActiveSvId,
+  stepsFor,
+  addStepFor,
+  updateStepFor,
+  removeStepFor,
+  reorder,
+}: {
+  wf: Workflow;
+  callType: CallType | undefined;
+  activeSvId: string;
+  setActiveSvId: (id: string) => void;
+  stepsFor: (svId: string) => ProcessStep[];
+  addStepFor: (svId: string) => void;
+  updateStepFor: (svId: string, sid: string, text: string) => void;
+  removeStepFor: (svId: string, sid: string) => void;
+  reorder: (svId: string, next: ProcessStep[]) => void;
+}) {
+  const subVersions = callType?.subVersions ?? [];
+  const effectiveSvId = activeSvId || subVersions[0]?.id || '';
+  const steps = effectiveSvId ? stepsFor(effectiveSvId) : [];
+
+  if (subVersions.length === 0) {
+    return (
+      <Card title="Generic process steps">
+        <div className="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded p-2">
+          This workflow's call type has no sub-versions. Add at least one in Admin → Call Types
+          before configuring process steps.
+        </div>
+      </Card>
+    );
+  }
+
+  return (
+    <Card
+      title="Generic process steps"
+      description="One ordered list per sub-version. Whichever sub-version the case resolves to, those steps show on the result page."
+      actions={
+        effectiveSvId ? (
+          <Button size="sm" onClick={() => addStepFor(effectiveSvId)}>+ Add step</Button>
+        ) : undefined
+      }
+    >
+      <div className="flex flex-wrap gap-2 border-b border-slate-200 mb-4">
+        {subVersions.map((sv) => (
+          <button
+            key={sv.id}
+            type="button"
+            onClick={() => setActiveSvId(sv.id)}
+            className={`px-3 py-2 text-sm font-medium border-b-2 ${
+              effectiveSvId === sv.id ? 'border-brand-600 text-brand-700' : 'border-transparent text-slate-500'
+            }`}
+          >
+            {sv.name}
+            <span className="ml-2 text-xs text-slate-400">({stepsFor(sv.id).length})</span>
+          </button>
+        ))}
+      </div>
+      <DragList
+        items={steps}
+        onReorder={(next) => reorder(effectiveSvId, next)}
+        renderItem={(s, handle) => (
+          <div className="flex items-start gap-2 border rounded-md p-3 bg-white">
+            {handle}
+            <Textarea
+              value={s.text}
+              onChange={(e) => updateStepFor(effectiveSvId, s.id, e.target.value)}
+              className="flex-1"
+            />
+            <Button size="sm" variant="ghost" onClick={() => removeStepFor(effectiveSvId, s.id)}>
+              Delete
+            </Button>
+          </div>
+        )}
+      />
+      {steps.length === 0 && (
+        <div className="text-xs text-slate-400 mt-2">No steps yet for this sub-version.</div>
+      )}
+      {/* Keep workflow reference used to satisfy the linter (the steps are derived from it). */}
+      <input type="hidden" value={wf.id} readOnly />
+    </Card>
+  );
 }
 
 function ConditionEditor({
@@ -327,76 +397,6 @@ function ConditionEditor({
             <Button size="sm" variant="ghost" onClick={() => remove(i)}>×</Button>
           </div>
         ))
-      )}
-    </div>
-  );
-}
-
-function SubVersionResolverEditor({
-  workflow,
-  callType,
-  onChange,
-}: {
-  workflow: Workflow;
-  callType: CallType;
-  onChange: (r: Workflow['subVersionResolver']) => void;
-}) {
-  const r = workflow.subVersionResolver;
-  const eligibleQs = workflow.questions.filter(
-    (q) => q.type === 'yesno' || q.type === 'dropdown' || q.type === 'triage'
-  );
-  const possibleAnswers = (() => {
-    const qid = r?.questionId;
-    if (!qid) return [];
-    const q = eligibleQs.find((x) => x.id === qid);
-    if (!q) return [];
-    if (q.type === 'yesno' || q.type === 'triage') return ['Yes', 'No'];
-    return (q.options ?? []).map((o) => o.label);
-  })();
-
-  return (
-    <div className="space-y-3">
-      <Select
-        label="Question whose answer picks the sub-version"
-        value={r?.questionId ?? ''}
-        onChange={(e) => {
-          const qid = e.target.value;
-          if (!qid) {
-            onChange(undefined);
-            return;
-          }
-          onChange({ questionId: qid, answerMap: r?.answerMap ?? {} });
-        }}
-      >
-        <option value="">— none (always use first sub-version) —</option>
-        {eligibleQs.map((q) => (
-          <option key={q.id} value={q.id}>{q.text}</option>
-        ))}
-      </Select>
-
-      {r && possibleAnswers.length > 0 && (
-        <div className="space-y-2">
-          <div className="text-xs font-medium text-slate-600">Map each answer to a sub-version</div>
-          {possibleAnswers.map((ans) => (
-            <div key={ans} className="grid grid-cols-[1fr_2fr] gap-2 items-center">
-              <span className="text-sm text-slate-600">When answer = "{ans}"</span>
-              <Select
-                value={r.answerMap[ans] ?? ''}
-                onChange={(e) =>
-                  onChange({
-                    questionId: r.questionId,
-                    answerMap: { ...r.answerMap, [ans]: e.target.value },
-                  })
-                }
-              >
-                <option value="">— use first sub-version —</option>
-                {callType.subVersions.map((sv) => (
-                  <option key={sv.id} value={sv.id}>{sv.name}</option>
-                ))}
-              </Select>
-            </div>
-          ))}
-        </div>
       )}
     </div>
   );

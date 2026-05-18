@@ -131,7 +131,7 @@ export interface WorkflowRow {
   id: string;
   name: string;
   call_type_id: string;
-  sub_version_resolver: unknown;
+  sub_version_rules: unknown;
   questions: unknown;
   post_triage: unknown;
   process_steps: unknown;
@@ -140,17 +140,15 @@ export interface WorkflowRow {
 
 export function workflowFromRow(r: WorkflowRow): Workflow {
   const pt = (r.post_triage as Workflow['postTriage'] | null) ?? { mode: 'none' };
-  const wf: Workflow = {
+  return {
     id: r.id,
     name: r.name,
     callTypeId: r.call_type_id ?? '',
+    subVersionRules: (r.sub_version_rules as Workflow['subVersionRules']) ?? {},
     questions: (r.questions as Workflow['questions']) ?? [],
     postTriage: pt,
-    processSteps: (r.process_steps as Workflow['processSteps']) ?? [],
+    processSteps: (r.process_steps as Workflow['processSteps']) ?? {},
   };
-  const resolver = r.sub_version_resolver as Workflow['subVersionResolver'] | null;
-  if (resolver) wf.subVersionResolver = resolver;
-  return wf;
 }
 
 export function workflowToRow(w: Workflow, position: number): WorkflowRow {
@@ -158,7 +156,7 @@ export function workflowToRow(w: Workflow, position: number): WorkflowRow {
     id: w.id,
     name: w.name,
     call_type_id: w.callTypeId,
-    sub_version_resolver: w.subVersionResolver ?? null,
+    sub_version_rules: w.subVersionRules,
     questions: w.questions,
     post_triage: w.postTriage,
     process_steps: w.processSteps,

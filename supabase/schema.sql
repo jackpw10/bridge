@@ -103,15 +103,17 @@ create table if not exists public.workflows (
   id                    text primary key,
   name                  text not null,
   call_type_id          text not null default '',
-  sub_version_resolver  jsonb,
+  sub_version_resolver  jsonb,                                      -- LEGACY, unused
+  sub_version_rules     jsonb not null default '{}'::jsonb,
   questions             jsonb not null default '[]'::jsonb,
   post_triage           jsonb not null default '{"mode":"none"}'::jsonb,
-  process_steps         jsonb not null default '[]'::jsonb,
+  process_steps         jsonb not null default '{}'::jsonb,
   position              integer not null default 0,
   created_at            timestamptz not null default now()
 );
 alter table public.workflows add column if not exists call_type_id text not null default '';
 alter table public.workflows add column if not exists sub_version_resolver jsonb;
+alter table public.workflows add column if not exists sub_version_rules jsonb not null default '{}'::jsonb;
 
 create table if not exists public.diagnoses (
   id            text primary key,

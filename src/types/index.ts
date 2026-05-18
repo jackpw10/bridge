@@ -87,22 +87,19 @@ export type PostTriageConfig =
       items: TransportReqItem[];
     };
 
-// Picks the sub-version of the call type for a running case, based on the
-// answer to a workflow question. Optional — workflows whose call type has no
-// sub-versions don't need this.
-export interface SubVersionResolver {
-  questionId: string;
-  answerMap: Record<string, string>; // question answer → sub-version id
-}
-
 export interface Workflow {
   id: string;
   name: string;
   callTypeId: string;                // FK → CallType.id
-  subVersionResolver?: SubVersionResolver;
+  // For each sub-version of the call type, the conditions that select it
+  // (AND-ed). First sub-version whose rules ALL match is the chosen one.
+  // Conditions may reference workflow questions OR post-triage questions.
+  subVersionRules: Record<string, Condition[]>;
   questions: WorkflowQuestion[];
   postTriage: PostTriageConfig;
-  processSteps: ProcessStep[];       // flat list; each step has optional multi-conditions
+  // Process steps now keyed by sub-version id. Workflows whose call type has
+  // a single sub-version use the literal 'default' key.
+  processSteps: Record<string, ProcessStep[]>;
 }
 
 // ---------- Health Authorities ----------
@@ -207,9 +204,6 @@ export interface Diagnosis {
 export interface ProcessStep {
   id: string;
   text: string;
-  condQid?: string;          // legacy single-condition
-  condVal?: string;
-  conditions?: Condition[];  // multi-condition (AND-ed). If present, takes precedence over condQid.
 }
 
 // ---------- Reference cards ----------

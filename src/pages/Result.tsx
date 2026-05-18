@@ -211,6 +211,30 @@ export function ResultPage() {
     nav('/triage');
   }
 
+  // If no sub-version resolved, show an error state.
+  if (!t.subVersionId && (t.activeWorkflow?.callTypeId)) {
+    return (
+      <div className="space-y-4">
+        <div>
+          <h1 className="text-2xl font-bold text-slate-800">IFT Triage Result</h1>
+        </div>
+        <Card>
+          <div className="space-y-3">
+            <div className="text-sm text-red-700 bg-red-50 border border-red-200 rounded p-3">
+              <strong>Could not determine the case sub-version.</strong> None of the workflow's
+              sub-version selection rules matched the current answers. Go back and complete
+              any missing workflow or post-triage answers, or check the rules in{' '}
+              <strong>Admin → Triage workflows</strong>.
+            </div>
+            <Button variant="secondary" onClick={() => { t.goToWorkflow(); nav('/triage/run'); }}>
+              Back to triage
+            </Button>
+          </div>
+        </Card>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-4">
       <div>

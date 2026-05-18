@@ -15,27 +15,23 @@ import type {
   WorkflowQuestion,
 } from '../types';
 
-// --------------------- Condition resolution ---------------------
-function resolveConditions(
-  step: { condQid?: string; condVal?: string; conditions?: Condition[] }
-): Condition[] {
-  if (step.conditions && step.conditions.length > 0) return step.conditions;
-  if (step.condQid && step.condVal !== undefined) {
-    return [{ qid: step.condQid, equals: step.condVal }];
-  }
-  return [];
-}
-
 function evalConditions(
   conds: Condition[],
   answers: Record<string, string>
 ): boolean {
+  if (conds.length === 0) return true;
   for (const c of conds) {
     const a = (answers[c.qid] ?? '').toLowerCase();
     const want = (c.equals ?? '').toLowerCase();
-    if (a !== want && !a.includes(want)) return false;
+    if (a !== want) return false;
   }
   return true;
+}
+
+// Legacy step-shaped (exception steps in service templates) still use single condQid/condVal.
+function resolveExceptionStepCondition(s: ExceptionStep): Condition[] {
+  if (s.condQid && s.condVal !== undefined) return [{ qid: s.condQid, equals: s.condVal }];
+  return [];
 }
 
 function isQuestionVisible(
@@ -142,15 +138,15 @@ function getActiveCardSteps(
   const base = baseSteps.filter((s) => !override?.deactivated.includes(s.id));
   const all = [...base, ...(override?.addedSteps ?? [])];
   const ordered = applyOrder(all, override?.sOrder ?? []);
-  return ordered.filter((s) => evalConditions(resolveConditions(s), preAnswers));
+  return ordered.filter((s) => evalConditions(resolveExceptionStepCondition(s), preAnswers));
 }
 
 export interface UseTriageResult {
   activeWorkflow: Workflow | null;
   callTypeId: string;
   callTypeName: string;
-  subVersionId: string;       // 'default' if call type has no sub-versions
-  subVersionName: string;     // empty if 'default'
+  subVersionId: string | null;  // null if no sub-version's rules match yet
+  subVersionName: string;       // empty if not resolved
   hasReferralQuestion: boolean;
 
   answers: Record<string, string>;
@@ -187,13 +183,13 @@ export interface UseTriageResult {
   getActiveCardQs: (
     svcId: string,
     callTypeId: string,
-    subVersionId: string,
+    subVersionId: string | null,
     facId: string
   ) => TemplateQuestion[];
   getActiveCardSteps: (
     svcId: string,
     callTypeId: string,
-    subVersionId: string,
+    subVersionId: string | null,
     facId: string,
     preAnswers: Record<string, string>
   ) => ExceptionStep[];
@@ -249,20 +245,21 @@ export function useTriage(): UseTriageResult {
     [visibleQuestions, answers]
   );
 
-  // ----- Sub-version resolution -----
-  const subVersionId = useMemo(() => {
-    if (!activeWorkflow) return 'default';
+  // ----- Sub-version resolution: walk the call type's sub-versions in order,
+  // first whose rules ALL match wins. Conditions reference workflow + post-triage answers.
+  const subVersionId: string | null = useMemo(() => {
+    if (!activeWorkflow) return null;
     if (!callType || callType.subVersions.length === 0) return 'default';
-    const r = activeWorkflow.subVersionResolver;
-    if (!r) return callType.subVersions[0]?.id ?? 'default';
-    const ans = answers[r.questionId] ?? '';
-    const mapped = r.answerMap[ans];
-    if (mapped && callType.subVersions.some((sv) => sv.id === mapped)) return mapped;
-    return callType.subVersions[0]?.id ?? 'default';
-  }, [activeWorkflow, callType, answers]);
+    const merged: Record<string, string> = { ...answers, ...postTriageAnswers };
+    for (const sv of callType.subVersions) {
+      const rules = activeWorkflow.subVersionRules[sv.id] ?? [];
+      if (evalConditions(rules, merged)) return sv.id;
+    }
+    return null;
+  }, [activeWorkflow, callType, answers, postTriageAnswers]);
 
   const subVersionName = useMemo(() => {
-    if (!callType || callType.subVersions.length === 0) return '';
+    if (!callType || !subVersionId) return '';
     return callType.subVersions.find((sv) => sv.id === subVersionId)?.name ?? '';
   }, [callType, subVersionId]);
 
@@ -277,15 +274,11 @@ export function useTriage(): UseTriageResult {
   const destFacility = facilities.find((f) => f.id === context.destFacId) ?? null;
   const sendingFacility = facilities.find((f) => f.id === context.facId) ?? null;
 
-  // ----- Process step filtering — supports multi-conditions -----
+  // ----- Process steps for the resolved sub-version -----
   const activeProcessSteps = useMemo(() => {
-    if (!activeWorkflow) return [];
-    // Conditions can reference workflow answers OR post-triage answers.
-    const merged: Record<string, string> = { ...answers, ...postTriageAnswers };
-    return activeWorkflow.processSteps.filter((s) =>
-      evalConditions(resolveConditions(s), merged)
-    );
-  }, [activeWorkflow, answers, postTriageAnswers]);
+    if (!activeWorkflow || !subVersionId) return [];
+    return activeWorkflow.processSteps[subVersionId] ?? [];
+  }, [activeWorkflow, subVersionId]);
 
   const hasReferralQuestion = workflowQuestions.some((q) => q.type === 'referral_resolve');
 
@@ -294,7 +287,8 @@ export function useTriage(): UseTriageResult {
   const goToWorkflow = useCallback(() => setPhase('workflow'), [setPhase]);
 
   const getActiveCardQsWrapped = useCallback(
-    (svcId: string, ctId: string, svId: string, facId: string): TemplateQuestion[] => {
+    (svcId: string, ctId: string, svId: string | null, facId: string): TemplateQuestion[] => {
+      if (!svId) return [];
       const svc = specialty.find((s) => s.id === svcId);
       if (!svc) return [];
       const ov = overrides.find((o) => o.facilityId === facId && o.svcId === svcId);
@@ -308,10 +302,11 @@ export function useTriage(): UseTriageResult {
     (
       svcId: string,
       ctId: string,
-      svId: string,
+      svId: string | null,
       facId: string,
       preAnswers: Record<string, string>
     ): ExceptionStep[] => {
+      if (!svId) return [];
       const svc = specialty.find((s) => s.id === svcId);
       if (!svc) return [];
       const ov = overrides.find((o) => o.facilityId === facId && o.svcId === svcId);
