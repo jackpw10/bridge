@@ -82,6 +82,82 @@ export function TriagePage() {
     }
   }, [t.phase, isAtEnd, postTriageNeeded, t, nav]);
 
+  // ---- Keyboard shortcuts during the workflow phase ----
+  // Y / N → select Yes / No on yes/no questions (when no input is focused).
+  // Enter → advance, unless focus is in a textarea (allows newlines in the
+  // notes textarea) or a child handler already consumed the event (e.g.
+  // Combobox committing an open dropdown).
+  //
+  // Declared above ALL conditional returns below. Otherwise the hook count
+  // varies between renders (e.g. when the workflow finishes and we early-
+  // return on missing currentQuestion) and React throws "rendered fewer
+  // hooks than expected" — which is what crashed the page at end-of-triage.
+  // Reads the current question + answers from the store directly so the
+  // closure can't go stale between renders.
+  useEffect(() => {
+    function canAdvanceFresh(cur: NonNullable<typeof t.currentQuestion>): boolean {
+      const answers = useTriageStore.getState().answers;
+      if (cur.type === 'referral_resolve') {
+        const choice = answers[`${cur.id}__choice`];
+        if (!choice) return false;
+        if (unseenTa.length > 0) return false;
+        return true;
+      }
+      if (cur.type === 'text') {
+        return !!(answers[cur.id] && answers[cur.id].trim());
+      }
+      if (cur.type === 'specialty_multi') {
+        const raw = answers[`${cur.id}__svcs`];
+        try { return raw ? (JSON.parse(raw) as string[]).length > 0 : false; } catch { return false; }
+      }
+      if (cur.type === 'diagnosis_multi') {
+        const raw = answers[`${cur.id}__dxs`];
+        try { return raw ? (JSON.parse(raw) as string[]).length > 0 : false; } catch { return false; }
+      }
+      if (cur.type === 'facility' || cur.type === 'receiving_facility') {
+        return !!(answers[`${cur.id}__facid`] || answers[`${cur.id}__freetext`]);
+      }
+      return !!answers[cur.id];
+    }
+
+    function onKey(e: KeyboardEvent) {
+      if (e.repeat) return;
+      if (e.defaultPrevented) return;
+      if (t.phase !== 'workflow') return;
+      const cur = t.currentQuestion;
+      if (!cur) return;
+      const target = e.target as HTMLElement | null;
+      const tag = target?.tagName ?? '';
+      const inEditable = tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT';
+
+      if (cur.type === 'yesno' || cur.type === 'triage') {
+        if (!inEditable) {
+          if (e.key === 'y' || e.key === 'Y') {
+            e.preventDefault();
+            t.setAnswer(cur.id, 'Yes');
+            return;
+          }
+          if (e.key === 'n' || e.key === 'N') {
+            e.preventDefault();
+            t.setAnswer(cur.id, 'No');
+            return;
+          }
+        }
+      }
+
+      if (e.key === 'Enter') {
+        if (tag === 'TEXTAREA') return;
+        if (canAdvanceFresh(cur)) {
+          e.preventDefault();
+          (target as HTMLElement | null)?.blur?.();
+          t.goNext();
+        }
+      }
+    }
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  });
+
   if (t.phase === 'pre-questions') {
     return (
       <PreQuestionsPanel
@@ -105,6 +181,9 @@ export function TriagePage() {
 
   const cur = t.currentQuestion;
 
+  // Mirrors canAdvanceFresh above but reads from the rendered closure so the
+  // Next button's disabled state updates on every render (the keydown handler
+  // can't use this version because it needs fresh state for in-flight changes).
   function canAdvance(): boolean {
     if (cur.type === 'referral_resolve') {
       const choice = t.answers[`${cur.id}__choice`];
@@ -112,7 +191,7 @@ export function TriagePage() {
       if (unseenTa.length > 0) return false;
       return true;
     }
-    if (cur.type === 'text') return true;
+    if (cur.type === 'text') return !!(t.answers[cur.id] && t.answers[cur.id].trim());
     if (cur.type === 'specialty_multi') {
       const raw = t.answers[`${cur.id}__svcs`];
       try { return raw ? (JSON.parse(raw) as string[]).length > 0 : false; } catch { return false; }
@@ -121,81 +200,11 @@ export function TriagePage() {
       const raw = t.answers[`${cur.id}__dxs`];
       try { return raw ? (JSON.parse(raw) as string[]).length > 0 : false; } catch { return false; }
     }
-    if (cur.type === 'facility') {
-      return !!t.answers[`${cur.id}__facid`];
+    if (cur.type === 'facility' || cur.type === 'receiving_facility') {
+      return !!(t.answers[`${cur.id}__facid`] || t.answers[`${cur.id}__freetext`]);
     }
     return !!t.answers[cur.id];
   }
-
-  // Compute can-advance from the LATEST store state (not the closure captured
-  // at render time). Native <select> arrow-key changes fire onChange just
-  // before the user presses Enter — relying on the rendered closure would
-  // read stale answers and skip the advance.
-  function canAdvanceFresh(): boolean {
-    const answers = useTriageStore.getState().answers;
-    if (cur.type === 'referral_resolve') {
-      const choice = answers[`${cur.id}__choice`];
-      if (!choice) return false;
-      if (unseenTa.length > 0) return false;
-      return true;
-    }
-    if (cur.type === 'text') {
-      return !!(answers[cur.id] && answers[cur.id].trim());
-    }
-    if (cur.type === 'specialty_multi') {
-      const raw = answers[`${cur.id}__svcs`];
-      try { return raw ? (JSON.parse(raw) as string[]).length > 0 : false; } catch { return false; }
-    }
-    if (cur.type === 'diagnosis_multi') {
-      const raw = answers[`${cur.id}__dxs`];
-      try { return raw ? (JSON.parse(raw) as string[]).length > 0 : false; } catch { return false; }
-    }
-    if (cur.type === 'facility' || cur.type === 'receiving_facility') {
-      return !!(answers[`${cur.id}__facid`] || answers[`${cur.id}__freetext`]);
-    }
-    return !!answers[cur.id];
-  }
-
-  // Keyboard shortcuts during the workflow question phase:
-  //   Y / N → select Yes / No on yes/no questions (when no input is focused)
-  //   Enter → advance, unless focus is in a textarea (lets user type newlines
-  //           in the Additional Information notes) or a child handler already
-  //           consumed it (e.g. Combobox committing an open dropdown).
-  useEffect(() => {
-    function onKey(e: KeyboardEvent) {
-      if (e.repeat) return;
-      if (e.defaultPrevented) return;
-      const target = e.target as HTMLElement | null;
-      const tag = target?.tagName ?? '';
-      const inEditable = tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT';
-
-      if (cur.type === 'yesno' || cur.type === 'triage') {
-        if (!inEditable) {
-          if (e.key === 'y' || e.key === 'Y') {
-            e.preventDefault();
-            t.setAnswer(cur.id, 'Yes');
-            return;
-          }
-          if (e.key === 'n' || e.key === 'N') {
-            e.preventDefault();
-            t.setAnswer(cur.id, 'No');
-            return;
-          }
-        }
-      }
-
-      if (e.key === 'Enter') {
-        if (tag === 'TEXTAREA') return;
-        if (canAdvanceFresh()) {
-          e.preventDefault();
-          (target as HTMLElement | null)?.blur?.();
-          t.goNext();
-        }
-      }
-    }
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  });
 
   return (
     <div className="space-y-4">
