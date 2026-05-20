@@ -5,6 +5,7 @@ import { useTriageStore } from '../store/triageStore';
 import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
 import { Select } from '../components/ui/Input';
+import { TriageTabs } from '../components/triage/TriageTabs';
 
 export function TriageStartPage() {
   const workflows = useAppStore((s) => s.workflows);
@@ -35,40 +36,44 @@ export function TriageStartPage() {
   }
 
   return (
-    <div className="max-w-xl mx-auto mt-10 space-y-4">
-      <div>
-        <h1 className="text-2xl font-bold text-slate-800">Start a triage case</h1>
-        <p className="text-sm text-slate-500">
-          Pick the workflow that matches the call type, then click Start Case.
-        </p>
-      </div>
+    <div className="space-y-4">
+      <TriageTabs />
+      <div className="max-w-xl mx-auto mt-6 space-y-4">
+        <div>
+          <h1 className="text-2xl font-bold text-slate-800">Start a triage case</h1>
+          <p className="text-sm text-slate-500">
+            Pick the workflow that matches the call type, then click Start Case.
+            Each case you start opens its own tab.
+          </p>
+        </div>
 
-      {visibleWorkflows.length === 0 ? (
-        <Card>
-          <div className="text-sm text-slate-500">
-            No workflows configured yet. Ask an admin to set one up in Admin → Triage workflows.
-          </div>
-        </Card>
-      ) : (
-        <Card>
-          <div className="space-y-4">
-            <Select
-              label="Workflow"
-              value={picked}
-              onChange={(e) => setPicked(e.target.value)}
-            >
-              {visibleWorkflows.map((w) => (
-                <option key={w.id} value={w.id}>
-                  {ctById.get(w.callTypeId)?.name ?? w.name}
-                </option>
-              ))}
-            </Select>
-            <Button onClick={start} className="w-full" size="lg" disabled={!picked}>
-              Start Case
-            </Button>
-          </div>
-        </Card>
-      )}
+        {visibleWorkflows.length === 0 ? (
+          <Card>
+            <div className="text-sm text-slate-500">
+              No workflows configured yet. Ask an admin to set one up in Admin → Triage workflows.
+            </div>
+          </Card>
+        ) : (
+          <Card>
+            <div className="space-y-4">
+              <Select
+                label="Workflow"
+                value={picked}
+                onChange={(e) => setPicked(e.target.value)}
+              >
+                {visibleWorkflows.map((w) => (
+                  <option key={w.id} value={w.id}>
+                    {ctById.get(w.callTypeId)?.name ?? w.name}
+                  </option>
+                ))}
+              </Select>
+              <Button onClick={start} className="w-full" size="lg" disabled={!picked}>
+                Start Case
+              </Button>
+            </div>
+          </Card>
+        )}
+      </div>
     </div>
   );
 }

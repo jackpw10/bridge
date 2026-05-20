@@ -15,6 +15,11 @@ import type {
   WorkflowQuestion,
 } from '../types';
 
+// Stable empty references so reading from a missing active case doesn't
+// produce a new object each render (which would thrash memo dependencies).
+const EMPTY_STR_REC: Record<string, string> = {};
+const EMPTY_BOOL_REC: Record<string, boolean> = {};
+
 function evalConditions(
   conds: Condition[],
   answers: Record<string, string>
@@ -169,6 +174,8 @@ export interface UseTriageResult {
   sendingFacility: Facility | null;
   activeProcessSteps: ProcessStep[];
 
+  caseId: string | null;
+
   setAnswer: (qid: string, value: string, subKeys?: Record<string, string>) => void;
   goPrev: () => void;
   goNext: () => void;
@@ -177,7 +184,9 @@ export interface UseTriageResult {
   goToPreQuestions: () => void;
   goToResult: () => void;
   goToWorkflow: () => void;
-  reset: () => void;
+  // Closes the active case (cancel / complete) and returns the route to
+  // navigate to next: another open case's page, or /triage if none remain.
+  closeActiveCase: () => string;
   setAcAnswer: (key: string, value: string) => void;
   setPostTriageAnswer: (key: string, value: string) => void;
   markNotifsSent: () => void;
@@ -205,15 +214,23 @@ export function useTriage(): UseTriageResult {
   const overrides = useAppStore((s) => s.overrides);
   const callTypes = useAppStore((s) => s.callTypes);
 
-  const activeWorkflowId = useTriageStore((s) => s.activeWorkflowId);
-  const answers = useTriageStore((s) => s.answers);
-  const currentIndex = useTriageStore((s) => s.currentIndex);
-  const taShown = useTriageStore((s) => s.taShown);
-  const phase = useTriageStore((s) => s.phase);
-  const acStates = useTriageStore((s) => s.acStates);
-  const postTriageAnswers = useTriageStore((s) => s.postTriageAnswers);
-  const notifsSent = useTriageStore((s) => s.notifsSent);
-  const notes = useTriageStore((s) => s.notes);
+  // ----- Read state from the ACTIVE case (tabbed triage) -----
+  const cases = useTriageStore((s) => s.cases);
+  const activeCaseId = useTriageStore((s) => s.activeCaseId);
+  const activeCase = useMemo(
+    () => cases.find((c) => c.id === activeCaseId) ?? null,
+    [cases, activeCaseId]
+  );
+
+  const activeWorkflowId = activeCase?.workflowId ?? '';
+  const answers = activeCase?.answers ?? EMPTY_STR_REC;
+  const currentIndex = activeCase?.currentIndex ?? 0;
+  const taShown = activeCase?.taShown ?? EMPTY_BOOL_REC;
+  const phase: 'workflow' | 'pre-questions' | 'result' = activeCase?.phase ?? 'workflow';
+  const acStates = activeCase?.acStates ?? EMPTY_STR_REC;
+  const postTriageAnswers = activeCase?.postTriageAnswers ?? EMPTY_STR_REC;
+  const notifsSent = activeCase?.notifsSent ?? false;
+  const notes = activeCase?.notes ?? '';
 
   const setAnswer = useTriageStore((s) => s.setAnswer);
   const goPrev = useTriageStore((s) => s.goPrev);
@@ -221,11 +238,22 @@ export function useTriage(): UseTriageResult {
   const goToIndex = useTriageStore((s) => s.goToIndex);
   const markTaShown = useTriageStore((s) => s.markTaShown);
   const setPhase = useTriageStore((s) => s.setPhase);
-  const reset = useTriageStore((s) => s.reset);
+  const closeCase = useTriageStore((s) => s.closeCase);
   const setAcAnswer = useTriageStore((s) => s.setAcAnswer);
   const setPostTriageAnswer = useTriageStore((s) => s.setPostTriageAnswer);
   const markNotifsSent = useTriageStore((s) => s.markNotifsSent);
   const setNotes = useTriageStore((s) => s.setNotes);
+
+  const closeActiveCase = useCallback((): string => {
+    if (!activeCaseId) return '/triage';
+    closeCase(activeCaseId);
+    const next = useTriageStore.getState();
+    if (next.activeCaseId) {
+      const nc = next.cases.find((c) => c.id === next.activeCaseId);
+      return nc?.phase === 'result' ? '/triage/result' : '/triage/run';
+    }
+    return '/triage';
+  }, [activeCaseId, closeCase]);
 
   const activeWorkflow = useMemo(
     () => workflows.find((w) => w.id === activeWorkflowId) ?? null,
@@ -361,6 +389,7 @@ export function useTriage(): UseTriageResult {
     postTriageAnswers,
     notifsSent,
     notes,
+    caseId: activeCaseId,
     visibleQuestions,
     currentQuestion: visibleQuestions[currentIndex],
     context,
@@ -376,7 +405,7 @@ export function useTriage(): UseTriageResult {
     goToPreQuestions,
     goToResult,
     goToWorkflow,
-    reset,
+    closeActiveCase,
     setAcAnswer,
     setPostTriageAnswer,
     markNotifsSent,

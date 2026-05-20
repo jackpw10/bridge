@@ -9,6 +9,7 @@ import { Badge } from '../components/ui/Badge';
 import { Textarea } from '../components/ui/Input';
 import { QuestionRenderer } from '../components/triage/QuestionRenderer';
 import { PreQuestionsPanel } from '../components/triage/PreQuestionsPanel';
+import { TriageTabs } from '../components/triage/TriageTabs';
 import type { TACard } from '../types';
 
 interface TaItem {
@@ -96,7 +97,9 @@ export function TriagePage() {
   // closure can't go stale between renders.
   useEffect(() => {
     function canAdvanceFresh(cur: NonNullable<typeof t.currentQuestion>): boolean {
-      const answers = useTriageStore.getState().answers;
+      const st = useTriageStore.getState();
+      const ac = st.cases.find((c) => c.id === st.activeCaseId);
+      const answers = ac?.answers ?? {};
       if (cur.type === 'referral_resolve') {
         const choice = answers[`${cur.id}__choice`];
         if (!choice) return false;
@@ -153,6 +156,18 @@ export function TriagePage() {
           t.goNext();
         }
       }
+
+      // Tab advances out of a multi-select question (Enter there only toggles
+      // options, so there'd otherwise be no keyboard way forward).
+      if (e.key === 'Tab' && !e.shiftKey) {
+        if (cur.type === 'specialty_multi' || cur.type === 'diagnosis_multi') {
+          if (canAdvanceFresh(cur)) {
+            e.preventDefault();
+            (target as HTMLElement | null)?.blur?.();
+            t.goNext();
+          }
+        }
+      }
     }
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
@@ -160,12 +175,15 @@ export function TriagePage() {
 
   if (t.phase === 'pre-questions') {
     return (
-      <PreQuestionsPanel
-        onDone={() => {
-          t.goToResult();
-          nav('/triage/result');
-        }}
-      />
+      <div className="space-y-4">
+        <TriageTabs />
+        <PreQuestionsPanel
+          onDone={() => {
+            t.goToResult();
+            nav('/triage/result');
+          }}
+        />
+      </div>
     );
   }
 
@@ -208,9 +226,10 @@ export function TriagePage() {
 
   return (
     <div className="space-y-4">
+      <TriageTabs />
       <div className="flex items-center justify-between">
         <Badge tone="blue">{t.activeWorkflow.name}</Badge>
-        <Button size="sm" variant="ghost" onClick={() => { t.reset(); nav('/triage'); }}>
+        <Button size="sm" variant="ghost" onClick={() => nav(t.closeActiveCase())}>
           Cancel case
         </Button>
       </div>

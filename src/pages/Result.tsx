@@ -6,6 +6,8 @@ import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
 import { Badge } from '../components/ui/Badge';
 import { Combobox } from '../components/ui/Combobox';
+import { TriageTabs } from '../components/triage/TriageTabs';
+import { ProcessCardLookup } from '../components/triage/ProcessCardLookup';
 import { uid } from '../utils/id';
 
 export function ResultPage() {
@@ -92,10 +94,11 @@ export function ResultPage() {
   function buildSummary(): string {
     const lines: string[] = [];
     lines.push('IFT Triage Result');
-    lines.push(`Workflow: ${t.activeWorkflow?.name ?? '—'}`);
     lines.push(`Generated: ${new Date().toLocaleString()}`);
     if (t.callTypeName) {
-      lines.push(`Call type: ${t.callTypeName}`);
+      lines.push(
+        `Call type: ${t.callTypeName}${t.subVersionName ? ` (${t.subVersionName})` : ''}`
+      );
     }
     lines.push('');
     lines.push(`Sending: ${t.sendingFacility?.name ?? '—'}`);
@@ -207,8 +210,7 @@ export function ResultPage() {
   }
 
   function completeCase() {
-    t.reset();
-    nav('/triage');
+    nav(t.closeActiveCase());
   }
 
   // If the workflow couldn't be loaded (e.g. it was deleted while the case
@@ -227,7 +229,7 @@ export function ResultPage() {
               have been deleted, or the page lost its connection. Start a new case from
               the triage tab.
             </div>
-            <Button onClick={() => { t.reset(); nav('/triage'); }}>Back to triage</Button>
+            <Button onClick={() => nav(t.closeActiveCase())}>Back to triage</Button>
           </div>
         </Card>
       </div>
@@ -260,12 +262,16 @@ export function ResultPage() {
 
   return (
     <div className="space-y-4">
+      <TriageTabs />
       <div>
         <h1 className="text-2xl font-bold text-slate-800">IFT Triage Result</h1>
         <p className="text-sm text-slate-500 flex flex-wrap items-center gap-2">
-          <Badge tone="blue">{t.activeWorkflow?.name ?? '—'}</Badge>
           <span>{t.sendingFacility?.name ?? '—'} → {t.destFacility?.name ?? '—'}</span>
-          {t.callTypeName && <Badge tone="green">{t.callTypeName}</Badge>}
+          {t.callTypeName && (
+            <Badge tone="green">
+              {t.callTypeName}{t.subVersionName ? ` (${t.subVersionName})` : ''}
+            </Badge>
+          )}
         </p>
       </div>
 
@@ -359,12 +365,6 @@ export function ResultPage() {
             </Card>
           )}
 
-          {t.notes.trim() && (
-            <Card title="Additional information">
-              <p className="text-sm whitespace-pre-wrap text-slate-700">{t.notes}</p>
-            </Card>
-          )}
-
           <Card
             title="Case summary"
             actions={
@@ -379,10 +379,18 @@ export function ResultPage() {
           </Card>
         </div>
 
-        {/* Right column (1/3) — Reference cards */}
+        {/* Right column (1/3) — Reference + process card lookups */}
         <div className="lg:col-span-1">
-          <div className="lg:sticky lg:top-4">
-            <Card title="Reference cards" description="Quick lookup">
+          <div className="lg:sticky lg:top-4 space-y-4">
+            <Card
+              title="Reference cards"
+              description="Quick lookup"
+              actions={
+                <Button size="sm" variant="ghost" onClick={() => setRefOpen('')}>
+                  Clear
+                </Button>
+              }
+            >
               <Combobox
                 options={refOptions}
                 value={refOpen}
@@ -409,6 +417,12 @@ export function ResultPage() {
                 </div>
               )}
             </Card>
+
+            <ProcessCardLookup
+              callTypeId={t.callTypeId}
+              getActiveCardQs={t.getActiveCardQs}
+              getActiveCardSteps={t.getActiveCardSteps}
+            />
           </div>
         </div>
       </div>
