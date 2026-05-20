@@ -9,6 +9,8 @@ import { cn } from '../utils/cn';
 
 export function AppShell() {
   const session = useAppStore((s) => s.session);
+  const lastError = useAppStore((s) => s.lastError);
+  const setLastError = useAppStore((s) => s.setLastError);
   const loc = useLocation();
   const nav = useNavigate();
 
@@ -71,6 +73,20 @@ export function AppShell() {
           </div>
         </div>
       </header>
+      {lastError && (
+        <div className="bg-red-50 border-b border-red-300 text-red-800 px-6 py-2 text-sm flex items-start justify-between gap-4">
+          <div className="flex-1">
+            <strong>Backend error:</strong> {lastError}
+          </div>
+          <button
+            type="button"
+            onClick={() => setLastError(null)}
+            className="text-red-600 hover:text-red-900 text-xs underline"
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
       <main className="flex-1 max-w-7xl w-full mx-auto px-6 py-6">
         <Outlet />
       </main>

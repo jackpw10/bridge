@@ -17,7 +17,6 @@ import {
   type CardOverrideRow,
   type DiagnosisRow,
   type FacilityRow,
-  type LegacyWorkflowRow,
   type NotificationRow,
   type ReferenceCardRow,
   type SpecialtyServiceRow,
@@ -51,7 +50,6 @@ import {
   defaultSpecialtyServices,
   defaultWorkflows,
 } from '../data/defaults';
-import { uid } from '../utils/id';
 import type { AppSession } from '../lib/auth';
 import { fetchProfile } from '../lib/auth';
 
@@ -59,6 +57,10 @@ interface AppState {
   session: AppSession | null;
   loading: boolean;
   error: string | null;
+  // Surface of last write/seed failure for the AppShell error banner. Set
+  // by diffSyncList / seedIfEmpty when a Supabase call returns an error or
+  // an RLS-silent zero-row response.
+  lastError: string | null;
 
   callTypes: CallType[];
   workflows: Workflow[];
@@ -72,6 +74,7 @@ interface AppState {
   healthAuthorities: HealthAuthority[];
 
   setSession: (s: AppSession | null) => void;
+  setLastError: (msg: string | null) => void;
 
   setCallTypes: (next: CallType[]) => Promise<void>;
   setWorkflows: (next: Workflow[]) => Promise<void>;
@@ -90,6 +93,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   session: null,
   loading: true,
   error: null,
+  lastError: null,
 
   callTypes: [],
   workflows: [],
@@ -103,6 +107,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   healthAuthorities: [],
 
   setSession: (s) => set({ session: s }),
+  setLastError: (msg) => set({ lastError: msg }),
 
   setCallTypes: async (next) => {
     const prev = get().callTypes;
@@ -161,6 +166,12 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 }));
 
+function reportWriteFailure(table: string, op: 'upsert' | 'delete', detail: string) {
+  const msg = `${op} ${table}: ${detail}`;
+  console.error(msg);
+  useAppStore.setState({ lastError: msg });
+}
+
 async function diffSyncList<R extends { id: string }>(
   prev: R[],
   next: R[],
@@ -182,12 +193,33 @@ async function diffSyncList<R extends { id: string }>(
   }
 
   if (toUpsert.length) {
-    const { error } = await supabase.from(table).upsert(toUpsert);
-    if (error) console.error(`upsert ${table}`, error);
+    // .select('id') so we get the inserted/updated rows back. An RLS-blocked
+    // upsert returns { data: [], error: null } — silently zero rows — so the
+    // returned-vs-expected count check is the only way to detect it client-side.
+    const { data, error } = await supabase.from(table).upsert(toUpsert).select('id');
+    if (error) {
+      reportWriteFailure(
+        table,
+        'upsert',
+        `${error.message}${error.hint ? ` (${error.hint})` : ''}`,
+      );
+    } else if ((data?.length ?? 0) < toUpsert.length) {
+      reportWriteFailure(
+        table,
+        'upsert',
+        `${toUpsert.length - (data?.length ?? 0)} of ${toUpsert.length} row(s) silently dropped — likely an RLS policy blocking your account. Check that your profile has role='admin'.`,
+      );
+    }
   }
   if (toDelete.length) {
     const { error } = await supabase.from(table).delete().in('id', toDelete);
-    if (error) console.error(`delete ${table}`, error);
+    if (error) {
+      reportWriteFailure(
+        table,
+        'delete',
+        `${error.message}${error.hint ? ` (${error.hint})` : ''}`,
+      );
+    }
   }
 }
 
@@ -261,48 +293,10 @@ async function migrateV5() {
 // users remain on that pre-v3 shape, so the translation is dead code.
 
 async function seedIfEmpty() {
-  // Workflows: if empty, look for legacy data first; otherwise seed defaults.
-  const { count: wfCount } = await supabase
-    .from('workflows')
-    .select('id', { count: 'exact', head: true });
-  if ((wfCount ?? 0) === 0) {
-    const { data: legacyWf } = await supabase
-      .from('workflow')
-      .select('*')
-      .eq('id', 'main')
-      .maybeSingle();
-    if (legacyWf && (legacyWf as LegacyWorkflowRow).questions) {
-      const wf: Workflow = {
-        id: 'wf_high_acuity',
-        name: 'High Acuity Workflow',
-        callTypeId: 'ct_high_acuity',
-        subVersionRules: {},
-        questions: ((legacyWf as LegacyWorkflowRow).questions as Workflow['questions']) ?? [],
-        postTriage: {
-          mode: 'questions',
-          showServicePreQuestions: true,
-          questions: [
-            {
-              id: uid('ptq'),
-              type: 'yesno',
-              text: 'Was the patient accepted outside of PTN?',
-            },
-          ],
-        },
-        processSteps: {},
-      };
-      await supabase.from('workflows').insert(workflowToRow(wf, 0));
-    } else {
-      await supabase
-        .from('workflows')
-        .insert(defaultWorkflows.map((w, i) => workflowToRow(w, i)));
-    }
-  }
-
   type Seedable<T> = {
     table: string;
     defaults: T[];
-    toRow: (item: T) => unknown;
+    toRow: (item: T, index: number) => unknown;
   };
   const seeds: Seedable<unknown>[] = [
     { table: 'call_types',         defaults: defaultCallTypes,          toRow: (x) => callTypeToRow(x as CallType) } as Seedable<unknown>,
@@ -312,6 +306,7 @@ async function seedIfEmpty() {
     { table: 'diagnoses',          defaults: defaultDiagnoses,          toRow: (x) => dxToRow(x as Diagnosis) } as Seedable<unknown>,
     { table: 'override_reasons',   defaults: defaultOverrideReasons,    toRow: (x) => x } as Seedable<unknown>,
     { table: 'reference_cards',    defaults: defaultReferenceCards,     toRow: (x) => refCardToRow(x as ReferenceCard) } as Seedable<unknown>,
+    { table: 'workflows',          defaults: defaultWorkflows,          toRow: (x: unknown, i: number) => workflowToRow(x as Workflow, i) } as Seedable<unknown>,
   ];
 
   for (const s of seeds) {
@@ -319,13 +314,24 @@ async function seedIfEmpty() {
       .from(s.table)
       .select('id', { count: 'exact', head: true });
     if (error) {
-      console.error(`count ${s.table}`, error);
+      // Non-admin users hit RLS-denied SELECTs for some tables on first load;
+      // surface so they can fix their account rather than seeing a "bad seed"
+      // mystery error.
+      reportWriteFailure(s.table, 'upsert', `read failed during seed: ${error.message}`);
       continue;
     }
     if ((count ?? 0) === 0 && s.defaults.length > 0) {
-      const rows = s.defaults.map(s.toRow);
-      const { error: insErr } = await supabase.from(s.table).insert(rows);
-      if (insErr) console.error(`seed ${s.table}`, insErr);
+      const rows = s.defaults.map((d, i) => s.toRow(d, i));
+      const { data, error: insErr } = await supabase.from(s.table).insert(rows).select('id');
+      if (insErr) {
+        reportWriteFailure(s.table, 'upsert', `seed insert failed: ${insErr.message}`);
+      } else if ((data?.length ?? 0) < rows.length) {
+        reportWriteFailure(
+          s.table,
+          'upsert',
+          `seed of ${rows.length} default row(s) was silently dropped — likely RLS. Your account probably isn't an admin.`,
+        );
+      }
     }
   }
 }

@@ -120,12 +120,6 @@ export function dxToRow(d: Diagnosis): DiagnosisRow {
   };
 }
 
-// ---------- Workflow (legacy singleton, kept for migration only) ----------
-export interface LegacyWorkflowRow {
-  id: string;
-  questions: unknown;
-}
-
 // ---------- Workflows ----------
 export interface WorkflowRow {
   id: string;
