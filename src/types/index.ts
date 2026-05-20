@@ -176,6 +176,10 @@ export interface SpecialtyService {
     enabled: boolean;
     cards: TACard[];
   };
+  // Call types (≈ workflows) this service is offered for. The specialty-
+  // service question during triage only lists services whose list includes
+  // the case's call type.
+  enabledCallTypeIds: string[];
 }
 
 // ---------- Card Overrides ----------

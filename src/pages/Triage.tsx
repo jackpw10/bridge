@@ -261,7 +261,13 @@ export function TriagePage() {
               <Badge tone="purple" className="mt-1">Yes → LLTO · No → HLOC</Badge>
             )}
           </div>
-          <QuestionRenderer key={cur.id} question={cur} answers={t.answers} setAnswer={t.setAnswer} />
+          <QuestionRenderer
+            key={cur.id}
+            question={cur}
+            answers={t.answers}
+            setAnswer={t.setAnswer}
+            callTypeId={t.callTypeId}
+          />
         </div>
       </Card>
 

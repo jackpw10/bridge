@@ -2,7 +2,7 @@ import { useEffect, useRef } from 'react';
 import type { WorkflowQuestion } from '../../types';
 import { useAppStore } from '../../store/appStore';
 import { Input, Select } from '../ui/Input';
-import { Combobox } from '../ui/Combobox';
+import { Combobox, type ComboboxHandle } from '../ui/Combobox';
 import { MultiSelect } from '../ui/MultiSelect';
 import { Button } from '../ui/Button';
 import { Badge } from '../ui/Badge';
@@ -11,9 +11,12 @@ interface Props {
   question: WorkflowQuestion;
   answers: Record<string, string>;
   setAnswer: (qid: string, value: string, subKeys?: Record<string, string>) => void;
+  // The case's call type — used to filter specialty-service options to the
+  // services enabled for this workflow.
+  callTypeId?: string;
 }
 
-export function QuestionRenderer({ question, answers, setAnswer }: Props) {
+export function QuestionRenderer({ question, answers, setAnswer, callTypeId }: Props) {
   const facilities = useAppStore((s) => s.facilities);
   const specialty = useAppStore((s) => s.specialty);
   const diagnoses = useAppStore((s) => s.diagnoses);
@@ -29,9 +32,9 @@ export function QuestionRenderer({ question, answers, setAnswer }: Props) {
   // guarantee the element exists and is interactable.
   const inputRef = useRef<HTMLInputElement>(null);
   const selectRef = useRef<HTMLSelectElement>(null);
-  // The override "Reason" select — focused after the user picks a custom
+  // The override "Reason" picker — focused after the user picks a custom
   // destination, so the keyboard flow chains facility → reason → next.
-  const reasonSelectRef = useRef<HTMLSelectElement>(null);
+  const reasonComboRef = useRef<ComboboxHandle>(null);
   useEffect(() => {
     const t = window.setTimeout(() => {
       inputRef.current?.focus();
@@ -39,6 +42,50 @@ export function QuestionRenderer({ question, answers, setAnswer }: Props) {
     }, 0);
     return () => window.clearTimeout(t);
   }, []);
+
+  // Referral question hotkeys: 1/2/3 pick a default destination, O opens the
+  // override flow and drops the cursor into the facility picker. No deps array
+  // so the closure (answers/facilities) stays fresh each render. Ignored while
+  // the user is typing in a field.
+  useEffect(() => {
+    if (question.type !== 'referral_resolve') return;
+    function onKey(e: KeyboardEvent) {
+      const tag = (e.target as HTMLElement | null)?.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+
+      const facAnsKey = Object.keys(answers).find((k) => k.endsWith('__facid'));
+      const facId = facAnsKey ? answers[facAnsKey] : '';
+      const fac = facilities.find((f) => f.id === facId) ?? null;
+      const svcKey = Object.keys(answers).find((k) => k.endsWith('__svcs'));
+      let svcIds: string[] = [];
+      try { svcIds = svcKey ? (JSON.parse(answers[svcKey]) as string[]) : []; } catch { svcIds = []; }
+      const primarySvcId = svcIds[0];
+      const pattern = fac && primarySvcId ? fac.referralPatterns[primarySvcId] : undefined;
+
+      if (e.key === '1' || e.key === '2' || e.key === '3') {
+        const idx = Number(e.key) - 1;
+        const destId = pattern?.[(['d1', 'd2', 'd3'] as const)[idx]];
+        if (destId) {
+          e.preventDefault();
+          const destName = facilities.find((f) => f.id === destId)?.name ?? '';
+          setAnswer(question.id, `Default destination ${idx + 1}: ${destName}`, {
+            choice: destId,
+            customfacid: '',
+            reasonid: '',
+          });
+        }
+      } else if (e.key === 'o' || e.key === 'O') {
+        e.preventDefault();
+        setAnswer(question.id, 'Custom destination', {
+          choice: '__custom__',
+          customfacid: answers[`${question.id}__customfacid`] ?? '',
+          reasonid: answers[`${question.id}__reasonid`] ?? '',
+        });
+      }
+    }
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  });
 
   if (question.type === 'yesno' || question.type === 'triage') {
     const opts: Array<{ value: 'Yes' | 'No'; hotkey: 'Y' | 'N'; rest: string }> = [
@@ -129,7 +176,11 @@ export function QuestionRenderer({ question, answers, setAnswer }: Props) {
   }
 
   if (question.type === 'specialty_multi') {
-    const opts = specialty.map((s) => ({ value: s.id, label: s.name }));
+    // Only offer services enabled for this case's call type / workflow.
+    const available = callTypeId
+      ? specialty.filter((s) => (s.enabledCallTypeIds ?? []).includes(callTypeId))
+      : specialty;
+    const opts = available.map((s) => ({ value: s.id, label: s.name }));
     const svcs: string[] = (() => {
       const raw = answers[`${question.id}__svcs`];
       try { return raw ? (JSON.parse(raw) as string[]) : []; } catch { return []; }
@@ -256,27 +307,26 @@ export function QuestionRenderer({ question, answers, setAnswer }: Props) {
                     customfacid: v,
                     reasonid: reasonId,
                   });
-                  // Chain focus to the reason picker once a site is chosen.
-                  if (v) window.setTimeout(() => reasonSelectRef.current?.focus(), 0);
+                  // Chain focus to the reason picker once a site is chosen —
+                  // focusing the combobox opens its dropdown so the user can
+                  // arrow + Enter through the reasons.
+                  if (v) window.setTimeout(() => reasonComboRef.current?.focus(), 0);
                 }}
               />
-              <Select
-                ref={reasonSelectRef}
+              <Combobox
+                ref={reasonComboRef}
                 label="Reason for override"
                 value={reasonId}
-                onChange={(e) => {
+                options={reasons.map((r) => ({ value: r.id, label: r.text }))}
+                placeholder="Pick a reason…"
+                onChange={(v) => {
                   setAnswer(question.id, `Custom (override)`, {
                     choice: '__custom__',
                     customfacid: customId,
-                    reasonid: e.target.value,
+                    reasonid: v,
                   });
                 }}
-              >
-                <option value="">— pick a reason —</option>
-                {reasons.map((r) => (
-                  <option key={r.id} value={r.id}>{r.text}</option>
-                ))}
-              </Select>
+              />
             </div>
           )}
         </div>

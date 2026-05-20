@@ -153,6 +153,35 @@ export function AdminSpecialtyDetailPage() {
         <Input label="Name" value={svc.name} onChange={(e) => patch({ name: e.target.value })} />
       </Card>
 
+      <Card
+        title="Enabled for workflows"
+        description="The specialty-service question during triage only lists this service for the workflows toggled on here."
+      >
+        {callTypes.length === 0 ? (
+          <div className="text-sm text-slate-500">No workflows defined yet.</div>
+        ) : (
+          <div className="space-y-2">
+            {callTypes.map((ct) => {
+              const enabledIds = svcRef.enabledCallTypeIds ?? [];
+              const on = enabledIds.includes(ct.id);
+              return (
+                <Toggle
+                  key={ct.id}
+                  checked={on}
+                  onChange={(v) => {
+                    const next = v
+                      ? [...enabledIds, ct.id]
+                      : enabledIds.filter((id) => id !== ct.id);
+                    patch({ enabledCallTypeIds: next });
+                  }}
+                  label={ct.name}
+                />
+              );
+            })}
+          </div>
+        )}
+      </Card>
+
       <Card title="Action card templates" description="Per call-type pre-questions and exception steps. Each call type tab is independent.">
         {callTypes.length === 0 ? (
           <div className="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded p-2">

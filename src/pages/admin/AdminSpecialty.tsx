@@ -17,6 +17,9 @@ export function AdminSpecialtyPage() {
       name: 'New service',
       templates: {},
       transportAdvisor: { enabled: false, cards: [] },
+      // New services start enabled for every existing workflow; disable
+      // per-workflow on the service detail page.
+      enabledCallTypeIds: callTypes.map((c) => c.id),
     };
     setServices([...services, s]);
   }
@@ -44,6 +47,7 @@ export function AdminSpecialtyPage() {
               name: r.name ?? '',
               templates: {},
               transportAdvisor: { enabled: false, cards: [] },
+              enabledCallTypeIds: callTypes.map((c) => c.id),
             }
         );
       }

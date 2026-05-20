@@ -58,8 +58,17 @@ export function TriageStartPage() {
             <div className="space-y-4">
               <Select
                 label="Workflow"
+                autoFocus
                 value={picked}
                 onChange={(e) => setPicked(e.target.value)}
+                onKeyDown={(e) => {
+                  // Arrow keys cycle workflows one at a time (native select);
+                  // Enter starts the case.
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    start();
+                  }
+                }}
               >
                 {visibleWorkflows.map((w) => (
                   <option key={w.id} value={w.id}>

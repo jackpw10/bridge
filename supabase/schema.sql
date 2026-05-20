@@ -81,10 +81,11 @@ create table if not exists public.facilities (
 );
 
 create table if not exists public.specialty_services (
-  id                text primary key,
-  name              text not null,
-  templates         jsonb not null default '{}'::jsonb,
-  transport_advisor jsonb not null default '{"enabled":false,"cards":[]}'::jsonb
+  id                    text primary key,
+  name                  text not null,
+  templates             jsonb not null default '{}'::jsonb,
+  transport_advisor     jsonb not null default '{"enabled":false,"cards":[]}'::jsonb,
+  enabled_call_type_ids jsonb not null default '["ct_high_acuity","ct_advice","ct_repate"]'::jsonb
 );
 
 -- One row per workflow (paired 1:1 with a call_types row by call_type_id).
@@ -134,8 +135,9 @@ create table if not exists public.reference_cards (
 -- above whenever a column is added.
 alter table public.call_types         add column if not exists sub_versions      jsonb not null default '[]'::jsonb;
 
-alter table public.specialty_services add column if not exists templates         jsonb not null default '{}'::jsonb;
-alter table public.specialty_services add column if not exists transport_advisor jsonb not null default '{"enabled":false,"cards":[]}'::jsonb;
+alter table public.specialty_services add column if not exists templates             jsonb not null default '{}'::jsonb;
+alter table public.specialty_services add column if not exists transport_advisor     jsonb not null default '{"enabled":false,"cards":[]}'::jsonb;
+alter table public.specialty_services add column if not exists enabled_call_type_ids jsonb not null default '["ct_high_acuity","ct_advice","ct_repate"]'::jsonb;
 
 alter table public.workflows          add column if not exists call_type_id      text not null default '';
 alter table public.workflows          add column if not exists sub_version_rules jsonb not null default '{}'::jsonb;

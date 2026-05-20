@@ -1,10 +1,24 @@
-import { useMemo, useRef, useState, useEffect, type KeyboardEvent } from 'react';
+import {
+  forwardRef,
+  useImperativeHandle,
+  useMemo,
+  useRef,
+  useState,
+  useEffect,
+  type KeyboardEvent,
+} from 'react';
 import { cn } from '../../utils/cn';
 
 export interface ComboOption {
   value: string;
   label: string;
   meta?: string;
+}
+
+// Imperative handle so a parent can move focus into the combobox (which also
+// opens its dropdown, since the input opens on focus).
+export interface ComboboxHandle {
+  focus: () => void;
 }
 
 interface Props {
@@ -19,23 +33,28 @@ interface Props {
   autoFocus?: boolean;
 }
 
-export function Combobox({
-  options,
-  value,
-  onChange,
-  placeholder = 'Type to search…',
-  label,
-  disabled,
-  className,
-  allowEmpty,
-  autoFocus,
-}: Props) {
+export const Combobox = forwardRef<ComboboxHandle, Props>(function Combobox(
+  {
+    options,
+    value,
+    onChange,
+    placeholder = 'Type to search…',
+    label,
+    disabled,
+    className,
+    allowEmpty,
+    autoFocus,
+  },
+  ref,
+) {
   const [query, setQuery] = useState('');
   const [open, setOpen] = useState(false);
   const [activeIndex, setActiveIndex] = useState(0);
   const rootRef = useRef<HTMLDivElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+
+  useImperativeHandle(ref, () => ({ focus: () => inputRef.current?.focus() }), []);
 
   useEffect(() => {
     if (autoFocus) inputRef.current?.focus();
@@ -207,4 +226,4 @@ export function Combobox({
       )}
     </div>
   );
-}
+});

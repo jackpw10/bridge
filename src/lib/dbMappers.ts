@@ -74,6 +74,7 @@ export interface SpecialtyServiceRow {
   name: string;
   templates: unknown;
   transport_advisor: unknown;
+  enabled_call_type_ids: unknown;
 }
 
 export function svcFromRow(r: SpecialtyServiceRow): SpecialtyService {
@@ -82,6 +83,7 @@ export function svcFromRow(r: SpecialtyServiceRow): SpecialtyService {
     name: r.name,
     templates: (r.templates as SpecialtyService['templates']) ?? {},
     transportAdvisor: r.transport_advisor as SpecialtyService['transportAdvisor'],
+    enabledCallTypeIds: (r.enabled_call_type_ids as string[]) ?? [],
   };
 }
 
@@ -91,6 +93,7 @@ export function svcToRow(s: SpecialtyService): SpecialtyServiceRow {
     name: s.name,
     templates: s.templates,
     transport_advisor: s.transportAdvisor,
+    enabled_call_type_ids: s.enabledCallTypeIds ?? [],
   };
 }
 

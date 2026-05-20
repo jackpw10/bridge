@@ -197,18 +197,23 @@ export const defaultWorkflows: Workflow[] = [
   },
 ];
 
+// Services start enabled for the acute-style workflows.
+const defaultEnabledCallTypeIds = ['ct_high_acuity', 'ct_advice', 'ct_repate'];
+
 export const defaultSpecialtyServices: SpecialtyService[] = [
   {
     id: 'svc_card',
     name: 'Cardiology',
     templates: {},
     transportAdvisor: { enabled: false, cards: [] },
+    enabledCallTypeIds: [...defaultEnabledCallTypeIds],
   },
   {
     id: 'svc_neuro',
     name: 'Neurology',
     templates: {},
     transportAdvisor: { enabled: false, cards: [] },
+    enabledCallTypeIds: [...defaultEnabledCallTypeIds],
   },
 ];
 
