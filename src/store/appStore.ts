@@ -322,7 +322,13 @@ async function seedIfEmpty() {
     }
     if ((count ?? 0) === 0 && s.defaults.length > 0) {
       const rows = s.defaults.map((d, i) => s.toRow(d, i));
-      const { data, error: insErr } = await supabase.from(s.table).insert(rows).select('id');
+      // upsert (not insert) so a concurrent seed — or a stale count — can't
+      // collide on the primary key. Seeding only runs when the table reads
+      // as empty, so re-applying default values here is harmless.
+      const { data, error: insErr } = await supabase
+        .from(s.table)
+        .upsert(rows)
+        .select('id');
       if (insErr) {
         reportWriteFailure(s.table, 'upsert', `seed insert failed: ${insErr.message}`);
       } else if ((data?.length ?? 0) < rows.length) {
@@ -336,7 +342,21 @@ async function seedIfEmpty() {
   }
 }
 
-export async function loadAllData(): Promise<void> {
+// Dedupe concurrent loadAllData calls. initAuth invokes it directly AND the
+// onAuthStateChange listener fires on the initial session and invokes it
+// again — without this guard both run seedIfEmpty in parallel and collide on
+// primary keys.
+let loadInFlight: Promise<void> | null = null;
+
+export function loadAllData(): Promise<void> {
+  if (loadInFlight) return loadInFlight;
+  loadInFlight = doLoadAllData().finally(() => {
+    loadInFlight = null;
+  });
+  return loadInFlight;
+}
+
+async function doLoadAllData(): Promise<void> {
   try {
     await migrateV5();
     await seedIfEmpty();

@@ -127,6 +127,26 @@ create table if not exists public.reference_cards (
   steps jsonb not null default '[]'::jsonb
 );
 
+-- --------------------- COLUMN PATCHES FOR EXISTING TABLES --------------------
+-- `create table if not exists` does NOT add new columns to a table that
+-- already exists. These `add column if not exists` statements bring an older
+-- database up to the current shape. Keep them in sync with the create blocks
+-- above whenever a column is added.
+alter table public.call_types         add column if not exists sub_versions      jsonb not null default '[]'::jsonb;
+
+alter table public.specialty_services add column if not exists templates         jsonb not null default '{}'::jsonb;
+alter table public.specialty_services add column if not exists transport_advisor jsonb not null default '{"enabled":false,"cards":[]}'::jsonb;
+
+alter table public.workflows          add column if not exists call_type_id      text not null default '';
+alter table public.workflows          add column if not exists sub_version_rules jsonb not null default '{}'::jsonb;
+alter table public.workflows          add column if not exists questions         jsonb not null default '[]'::jsonb;
+alter table public.workflows          add column if not exists post_triage       jsonb not null default '{"mode":"none"}'::jsonb;
+alter table public.workflows          add column if not exists process_steps     jsonb not null default '{}'::jsonb;
+alter table public.workflows          add column if not exists position          integer not null default 0;
+alter table public.workflows          add column if not exists created_at        timestamptz not null default now();
+
+alter table public.card_overrides     add column if not exists parts             jsonb not null default '{}'::jsonb;
+
 -- ------------------------------ NOTIFICATIONS --------------------------------
 create table if not exists public.notifications (
   id            text primary key,
