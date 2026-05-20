@@ -103,6 +103,11 @@ export function TriagePage() {
       if (cur.type === 'referral_resolve') {
         const choice = answers[`${cur.id}__choice`];
         if (!choice) return false;
+        // An override needs BOTH a destination facility and a reason.
+        if (choice === '__custom__') {
+          if (!answers[`${cur.id}__customfacid`]) return false;
+          if (!answers[`${cur.id}__reasonid`]) return false;
+        }
         if (unseenTa.length > 0) return false;
         return true;
       }
@@ -187,6 +192,11 @@ export function TriagePage() {
     );
   }
 
+  // Transitional: a result-phase case is briefly active here while a tab
+  // switch navigates to /triage/result. Render nothing rather than flashing
+  // stale question UI.
+  if (t.phase === 'result') return null;
+
   if (!t.activeWorkflow) return null;
 
   if (!t.currentQuestion) {
@@ -206,6 +216,10 @@ export function TriagePage() {
     if (cur.type === 'referral_resolve') {
       const choice = t.answers[`${cur.id}__choice`];
       if (!choice) return false;
+      if (choice === '__custom__') {
+        if (!t.answers[`${cur.id}__customfacid`]) return false;
+        if (!t.answers[`${cur.id}__reasonid`]) return false;
+      }
       if (unseenTa.length > 0) return false;
       return true;
     }
@@ -227,8 +241,11 @@ export function TriagePage() {
   return (
     <div className="space-y-4">
       <TriageTabs />
-      <div className="flex items-center justify-between">
-        <Badge tone="blue">{t.activeWorkflow.name}</Badge>
+      <div className="flex items-start justify-between">
+        <div>
+          <h1 className="text-2xl font-bold text-slate-800">Initial Triage Questions</h1>
+          <Badge tone="blue">{t.activeWorkflow.name}</Badge>
+        </div>
         <Button size="sm" variant="ghost" onClick={() => nav(t.closeActiveCase())}>
           Cancel case
         </Button>

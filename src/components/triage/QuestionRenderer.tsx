@@ -29,6 +29,9 @@ export function QuestionRenderer({ question, answers, setAnswer }: Props) {
   // guarantee the element exists and is interactable.
   const inputRef = useRef<HTMLInputElement>(null);
   const selectRef = useRef<HTMLSelectElement>(null);
+  // The override "Reason" select — focused after the user picks a custom
+  // destination, so the keyboard flow chains facility → reason → next.
+  const reasonSelectRef = useRef<HTMLSelectElement>(null);
   useEffect(() => {
     const t = window.setTimeout(() => {
       inputRef.current?.focus();
@@ -243,6 +246,7 @@ export function QuestionRenderer({ question, answers, setAnswer }: Props) {
             <div className="space-y-2">
               <Combobox
                 label="Custom destination"
+                autoFocus
                 options={filteredCandidates}
                 value={customId}
                 onChange={(v) => {
@@ -252,9 +256,12 @@ export function QuestionRenderer({ question, answers, setAnswer }: Props) {
                     customfacid: v,
                     reasonid: reasonId,
                   });
+                  // Chain focus to the reason picker once a site is chosen.
+                  if (v) window.setTimeout(() => reasonSelectRef.current?.focus(), 0);
                 }}
               />
               <Select
+                ref={reasonSelectRef}
                 label="Reason for override"
                 value={reasonId}
                 onChange={(e) => {

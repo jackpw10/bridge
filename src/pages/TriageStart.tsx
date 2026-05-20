@@ -40,7 +40,7 @@ export function TriageStartPage() {
       <TriageTabs />
       <div className="max-w-xl mx-auto mt-6 space-y-4">
         <div>
-          <h1 className="text-2xl font-bold text-slate-800">Start a triage case</h1>
+          <h1 className="text-2xl font-bold text-slate-800">Start a New Case</h1>
           <p className="text-sm text-slate-500">
             Pick the workflow that matches the call type, then click Start Case.
             Each case you start opens its own tab.

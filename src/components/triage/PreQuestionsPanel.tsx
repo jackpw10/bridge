@@ -72,11 +72,22 @@ export function PreQuestionsPanel({ onDone }: Props) {
     return true;
   }
 
+  // Returning to the question list: land on the LAST question, not past the
+  // end. Otherwise `isAtEnd` stays true and the Triage page immediately
+  // bounces back into post-triage.
+  function backToQuestions() {
+    t.goToIndex(Math.max(0, t.visibleQuestions.length - 1));
+    t.goToWorkflow();
+  }
+
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <Badge tone="blue">{t.activeWorkflow?.name}</Badge>
-        <Button size="sm" variant="ghost" onClick={t.goToWorkflow}>Back to questions</Button>
+      <div className="flex items-start justify-between">
+        <div>
+          <h1 className="text-2xl font-bold text-slate-800">Post Triage Questions</h1>
+          <Badge tone="blue">{t.activeWorkflow?.name}</Badge>
+        </div>
+        <Button size="sm" variant="ghost" onClick={backToQuestions}>Back to questions</Button>
       </div>
 
       {isQuestions && postQs.length > 0 && (
@@ -163,7 +174,7 @@ export function PreQuestionsPanel({ onDone }: Props) {
       })}
 
       <div className="flex justify-end gap-2">
-        <Button variant="secondary" onClick={() => t.goToWorkflow()}>Back</Button>
+        <Button variant="secondary" onClick={backToQuestions}>Back</Button>
         <Button onClick={onDone} disabled={!allAnswered()}>Generate result</Button>
       </div>
     </div>

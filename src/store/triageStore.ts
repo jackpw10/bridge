@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { persist, createJSONStorage } from 'zustand/middleware';
 import { uid } from '../utils/id';
 
 type Phase = 'workflow' | 'pre-questions' | 'result';
@@ -68,7 +69,11 @@ function patchActive(
   };
 }
 
-export const useTriageStore = create<TriageRuntime>((set) => ({
+// Open cases are persisted to sessionStorage so a page refresh keeps every
+// tab. They clear when the browser tab is closed (transient working state).
+export const useTriageStore = create<TriageRuntime>()(
+  persist(
+    (set) => ({
   cases: [],
   activeCaseId: null,
 
@@ -119,4 +124,12 @@ export const useTriageStore = create<TriageRuntime>((set) => ({
     ),
   markNotifsSent: () => set((s) => patchActive(s, () => ({ notifsSent: true }))),
   setNotes: (str) => set((s) => patchActive(s, () => ({ notes: str }))),
-}));
+    }),
+    {
+      name: 'bridge-triage-cases',
+      storage: createJSONStorage(() => sessionStorage),
+      // Persist only the case data — action functions are recreated each load.
+      partialize: (s) => ({ cases: s.cases, activeCaseId: s.activeCaseId }),
+    }
+  )
+);

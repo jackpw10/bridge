@@ -213,6 +213,11 @@ export function ResultPage() {
     nav(t.closeActiveCase());
   }
 
+  // Transitional: while a tab switch navigates here, the active case may be a
+  // non-result case for one render. Render nothing rather than flashing the
+  // sub-version error panel.
+  if (t.phase !== 'result') return null;
+
   // If the workflow couldn't be loaded (e.g. it was deleted while the case
   // was in progress, or realtime sync raced), show a clear error rather than
   // rendering a tree full of empty placeholders.
@@ -251,8 +256,17 @@ export function ResultPage() {
               any missing workflow or post-triage answers, or check the rules in{' '}
               <strong>Admin → Triage workflows</strong>.
             </div>
-            <Button variant="secondary" onClick={() => { t.goToWorkflow(); nav('/triage/run'); }}>
-              Back to triage
+            <Button
+              variant="secondary"
+              onClick={() => {
+                // Land on the last question (not past the end) so the user
+                // can correct answers — otherwise the page bounces back.
+                t.goToIndex(Math.max(0, t.visibleQuestions.length - 1));
+                t.goToWorkflow();
+                nav('/triage/run');
+              }}
+            >
+              Fix answers
             </Button>
           </div>
         </Card>
@@ -427,10 +441,7 @@ export function ResultPage() {
         </div>
       </div>
 
-      <div className="flex justify-between">
-        <Button variant="secondary" onClick={() => { t.goToWorkflow(); nav('/triage/run'); }}>
-          Back
-        </Button>
+      <div className="flex justify-end">
         <Button onClick={completeCase}>Complete case</Button>
       </div>
     </div>
