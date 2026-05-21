@@ -15,6 +15,7 @@ export const defaultCallTypes: CallType[] = [
   {
     id: 'ct_high_acuity',
     name: 'High Acuity',
+    letter: 'A',
     subVersions: [
       { id: 'llto', name: 'LLTO' },
       { id: 'hloc', name: 'HLOC' },
@@ -23,14 +24,15 @@ export const defaultCallTypes: CallType[] = [
   {
     id: 'ct_advice',
     name: 'Advice',
+    letter: 'B',
     subVersions: [
       { id: 'llto', name: 'LLTO' },
       { id: 'hloc', name: 'HLOC' },
     ],
   },
-  { id: 'ct_repate', name: 'Repate', subVersions: [{ id: 'default', name: 'Default' }] },
-  { id: 'ct_scheduled', name: 'Scheduled', subVersions: [{ id: 'default', name: 'Default' }] },
-  { id: 'ct_discharge', name: 'Discharge', subVersions: [{ id: 'default', name: 'Default' }] },
+  { id: 'ct_repate', name: 'Repate', letter: 'C', subVersions: [{ id: 'default', name: 'Default' }] },
+  { id: 'ct_scheduled', name: 'Scheduled', letter: 'D', subVersions: [{ id: 'default', name: 'Default' }] },
+  { id: 'ct_discharge', name: 'Discharge', letter: 'E', subVersions: [{ id: 'default', name: 'Default' }] },
 ];
 
 export const defaultHealthAuthorities: HealthAuthority[] = [
@@ -200,10 +202,12 @@ export const defaultWorkflows: Workflow[] = [
 // Services start enabled for the acute-style workflows.
 const defaultEnabledCallTypeIds = ['ct_high_acuity', 'ct_advice', 'ct_repate'];
 
+// Service numbers: alphabetical order (Cardiology = 1, Neurology = 2).
 export const defaultSpecialtyServices: SpecialtyService[] = [
   {
     id: 'svc_card',
     name: 'Cardiology',
+    number: 1,
     templates: {},
     transportAdvisor: { enabled: false, cards: [] },
     enabledCallTypeIds: [...defaultEnabledCallTypeIds],
@@ -211,16 +215,21 @@ export const defaultSpecialtyServices: SpecialtyService[] = [
   {
     id: 'svc_neuro',
     name: 'Neurology',
+    number: 2,
     templates: {},
     transportAdvisor: { enabled: false, cards: [] },
     enabledCallTypeIds: [...defaultEnabledCallTypeIds],
   },
 ];
 
+// Facility codes: alphabetical order from 100 (Richmond 100, Surrey 101,
+// Vancouver 102).
 export const defaultFacilities: Facility[] = [
   {
     id: 'f_general',
     name: 'Vancouver General',
+    abbreviation: 'VGH',
+    code: '102',
     healthAuthorityId: 'ha_vch',
     onSiteServiceIds: ['svc_card', 'svc_neuro'],
     referralPatterns: {},
@@ -238,6 +247,8 @@ export const defaultFacilities: Facility[] = [
   {
     id: 'f_richmond',
     name: 'Richmond Regional',
+    abbreviation: 'RR',
+    code: '100',
     healthAuthorityId: 'ha_vch',
     onSiteServiceIds: ['svc_card'],
     referralPatterns: {
@@ -250,6 +261,8 @@ export const defaultFacilities: Facility[] = [
   {
     id: 'f_surrey',
     name: 'Surrey Memorial',
+    abbreviation: 'SMH',
+    code: '101',
     healthAuthorityId: 'ha_fh',
     onSiteServiceIds: ['svc_card', 'svc_neuro'],
     referralPatterns: {},

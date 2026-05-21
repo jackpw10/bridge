@@ -93,6 +93,18 @@ export function AdminFacilityDetailPage() {
               <option key={h.id} value={h.id}>{h.name}</option>
             ))}
           </Select>
+          <Input
+            label="Abbreviation"
+            value={facility.abbreviation}
+            onChange={(e) => patch({ abbreviation: e.target.value })}
+          />
+          <Input
+            label="Facility code (3 digits)"
+            value={facility.code}
+            maxLength={3}
+            placeholder="100"
+            onChange={(e) => patch({ code: e.target.value.replace(/\D/g, '').slice(0, 3) })}
+          />
         </div>
         {has.length === 0 && (
           <div className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded p-2 mt-2">
@@ -102,12 +114,36 @@ export function AdminFacilityDetailPage() {
         )}
       </Card>
 
-      <Card title="On-site specialty services" description="Mark which services this facility provides on-site.">
+      <Card
+        title="On-site specialty services"
+        description="Mark which services this facility provides on-site. A Process Card can only be edited for an on-site service (the card is selected when this facility is the receiving facility)."
+      >
         <MultiSelect
           options={services.map((s) => ({ value: s.id, label: s.name }))}
           value={facility.onSiteServiceIds}
           onChange={(v) => patch({ onSiteServiceIds: v })}
         />
+        {facility.onSiteServiceIds.length > 0 && (
+          <div className="mt-4 space-y-2">
+            <div className="text-xs font-semibold uppercase text-slate-500">Process Cards</div>
+            {facility.onSiteServiceIds.map((svcId) => {
+              const svc = services.find((s) => s.id === svcId);
+              if (!svc) return null;
+              return (
+                <div key={svcId} className="flex items-center justify-between border rounded-md p-2">
+                  <span className="text-sm text-slate-700">{svc.name}</span>
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    onClick={() => setEditingOverride({ svcId })}
+                  >
+                    Edit Process Card
+                  </Button>
+                </div>
+              );
+            })}
+          </div>
+        )}
       </Card>
 
       <Card title="Referral patterns" description="Default destinations for each specialty service this facility refers OUT for.">
@@ -138,11 +174,6 @@ export function AdminFacilityDetailPage() {
                         onChange={(v) => setReferralPattern(s.id, { ...rp, [k]: v })}
                       />
                     ))}
-                  </div>
-                  <div className="mt-2">
-                    <Button size="sm" variant="secondary" onClick={() => setEditingOverride({ svcId: s.id })}>
-                      Edit card override
-                    </Button>
                   </div>
                 </div>
               );

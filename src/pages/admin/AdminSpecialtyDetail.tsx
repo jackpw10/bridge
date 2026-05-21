@@ -150,15 +150,25 @@ export function AdminSpecialtyDetailPage() {
       </div>
 
       <Card title="Identity">
-        <Input label="Name" value={svc.name} onChange={(e) => patch({ name: e.target.value })} />
+        <div className="grid grid-cols-2 gap-3">
+          <Input label="Name" value={svc.name} onChange={(e) => patch({ name: e.target.value })} />
+          <Input
+            label="Service number"
+            type="number"
+            min={1}
+            value={svc.number || ''}
+            placeholder="1"
+            onChange={(e) => patch({ number: Number(e.target.value) || 0 })}
+          />
+        </div>
       </Card>
 
       <Card
-        title="Enabled for workflows"
-        description="The specialty-service question during triage only lists this service for the workflows toggled on here."
+        title="Enabled for call types"
+        description="The specialty-service question during triage only lists this service for the call types toggled on here."
       >
         {callTypes.length === 0 ? (
-          <div className="text-sm text-slate-500">No workflows defined yet.</div>
+          <div className="text-sm text-slate-500">No call types defined yet.</div>
         ) : (
           <div className="space-y-2">
             {callTypes.map((ct) => {
@@ -182,11 +192,11 @@ export function AdminSpecialtyDetailPage() {
         )}
       </Card>
 
-      <Card title="Action card templates" description="Per call-type pre-questions and exception steps. Each call type tab is independent.">
+      <Card title="Process Card Template" description="Per call-type pre-questions and exception steps. Each call type tab is independent.">
         {callTypes.length === 0 ? (
           <div className="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded p-2">
             No call types defined yet. Add some in{' '}
-            <Link to="/admin/workflow" className="underline">Admin → Triage workflows</Link>{' '}
+            <Link to="/admin/workflow" className="underline">Admin → Call Types</Link>{' '}
             first.
           </div>
         ) : (
@@ -315,7 +325,7 @@ export function AdminSpecialtyDetailPage() {
             {callTypes.length === 0 && (
               <div className="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded p-2">
                 No call types defined yet. Add one in{' '}
-                <Link to="/admin/workflow" className="underline">Admin → Triage workflows</Link>.
+                <Link to="/admin/workflow" className="underline">Admin → Call Types</Link>.
               </div>
             )}
 

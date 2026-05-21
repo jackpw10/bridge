@@ -27,6 +27,8 @@ export interface CallTypeSubVersion {
 export interface CallType {
   id: string;
   name: string;
+  // Single character used in Process Card codes (e.g. 'A').
+  letter: string;
   subVersions: CallTypeSubVersion[];
 }
 
@@ -58,6 +60,8 @@ export interface WorkflowQuestion {
   condVal?: string;
   // For facility / receiving_facility: also allow a free-text entry (e.g. an address)
   allowFreeText?: boolean;
+  // Optional reference text shown beside the question during triage.
+  additionalInfo?: string;
 }
 
 // A question shown on the Post-Triage screen (questions mode).
@@ -130,6 +134,10 @@ export interface NotificationRequirement {
 export interface Facility {
   id: string;
   name: string;
+  // Short abbreviation (e.g. 'VGH').
+  abbreviation: string;
+  // 3-digit facility code used in Process Card codes (e.g. '303').
+  code: string;
   healthAuthorityId: string;
   onSiteServiceIds: string[];
   referralPatterns: Record<string, ReferralPattern>;
@@ -169,6 +177,8 @@ export interface TACard {
 export interface SpecialtyService {
   id: string;
   name: string;
+  // Numeric id used (2-digit, zero-padded) in Process Card codes.
+  number: number;
   // Nested: templates[callTypeId][subVersionId] = ServiceTemplate.
   // For call types with no sub-versions, the inner key is 'default'.
   templates: Record<string, Record<string, ServiceTemplate>>;

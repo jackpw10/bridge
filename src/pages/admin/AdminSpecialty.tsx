@@ -11,14 +11,22 @@ export function AdminSpecialtyPage() {
   const setServices = useAppStore((s) => s.setSpecialty);
   const callTypes = useAppStore((s) => s.callTypes);
 
+  function nextServiceNumber(): number {
+    const used = new Set(services.map((s) => s.number).filter((n) => n > 0));
+    let n = 1;
+    while (used.has(n)) n++;
+    return n;
+  }
+
   function add() {
     const s: SpecialtyService = {
       id: uid('svc'),
       name: 'New service',
+      number: nextServiceNumber(),
       templates: {},
       transportAdvisor: { enabled: false, cards: [] },
-      // New services start enabled for every existing workflow; disable
-      // per-workflow on the service detail page.
+      // New services start enabled for every existing call type; disable
+      // per-call-type on the service detail page.
       enabledCallTypeIds: callTypes.map((c) => c.id),
     };
     setServices([...services, s]);
@@ -45,6 +53,8 @@ export function AdminSpecialtyPage() {
           : {
               id,
               name: r.name ?? '',
+              // 0 → the code backfill assigns a real number on next load.
+              number: 0,
               templates: {},
               transportAdvisor: { enabled: false, cards: [] },
               enabledCallTypeIds: callTypes.map((c) => c.id),

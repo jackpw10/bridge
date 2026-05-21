@@ -53,8 +53,8 @@ export function AdminWorkflowDetailPage() {
   if (!wf) {
     return (
       <div>
-        <Link to="/admin/workflow" className="text-brand-600 hover:underline text-sm">← Workflows</Link>
-        <div className="mt-4 text-sm text-slate-500">Workflow not found.</div>
+        <Link to="/admin/workflow" className="text-brand-600 hover:underline text-sm">← Call Types</Link>
+        <div className="mt-4 text-sm text-slate-500">Call type not found.</div>
       </div>
     );
   }
@@ -74,7 +74,7 @@ export function AdminWorkflowDetailPage() {
   }
 
   function deleteWorkflow() {
-    if (!window.confirm('Delete this workflow (and its call type)?')) return;
+    if (!window.confirm('Delete this call type?')) return;
     setWorkflows(workflows.filter((w) => w.id !== wfRef.id));
     if (activeCallType) {
       setCallTypes(callTypes.filter((c) => c.id !== activeCallType.id));
@@ -160,13 +160,13 @@ export function AdminWorkflowDetailPage() {
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <div>
-          <Link to="/admin/workflow" className="text-xs text-brand-600 hover:underline">← Workflows</Link>
+          <Link to="/admin/workflow" className="text-xs text-brand-600 hover:underline">← Call Types</Link>
           <h1 className="text-2xl font-bold text-slate-800">{wf.name}</h1>
         </div>
-        <Button variant="ghost" onClick={deleteWorkflow}>Delete workflow</Button>
+        <Button variant="ghost" onClick={deleteWorkflow}>Delete call type</Button>
       </div>
 
-      <Card title="Identity" description="Renaming here renames the paired call type. Sub-versions are managed on the workflows list.">
+      <Card title="Identity" description="Sub-versions and the code letter are managed on the Call Types list.">
         <Input label="Name" value={wf.name} onChange={(e) => renamePair(e.target.value)} />
       </Card>
 
@@ -191,7 +191,7 @@ export function AdminWorkflowDetailPage() {
       )}
 
       <Card
-        title="Workflow questions"
+        title="Initial Triage Questions"
         description="Questions the user answers during triage."
         actions={<Button size="sm" onClick={() => setAddingQ(true)}>+ Add question</Button>}
       >
@@ -319,18 +319,18 @@ function ProcessStepsEditor({
 
   let description: string;
   if (hasSubVersions && hasPtn) {
-    description = 'One ordered list per sub-version × PTN variant. The PTN question (in post-triage) decides which variant fires.';
+    description = 'One Action Card per sub-version × PTN variant. The PTN question (in post-triage) decides which variant fires.';
   } else if (hasSubVersions) {
-    description = 'One ordered list per sub-version. Whichever sub-version the case resolves to, those steps show on the result page.';
+    description = 'One Action Card per sub-version. Whichever sub-version the case resolves to, that one shows on the result page.';
   } else if (hasPtn) {
-    description = 'Two ordered lists: Standard and Outside PTN. The PTN question (in post-triage) decides which fires.';
+    description = 'Two Action Cards: Standard and Outside PTN. The PTN question (in post-triage) decides which fires.';
   } else {
-    description = 'A single ordered list of process steps shown on the result page.';
+    description = 'A single ordered Action Card shown on the result page.';
   }
 
   return (
     <Card
-      title="Generic process steps"
+      title="Action Card"
       description={description}
       actions={<Button size="sm" onClick={() => addStepFor(composedKey)}>+ Add step</Button>}
     >
@@ -658,6 +658,11 @@ function QuestionEditor({
     }>
       <div className="space-y-4">
         <Input label="Question text" value={q.text} onChange={(e) => update('text', e.target.value)} />
+        <Textarea
+          label="Question Additional Info (optional reference text shown beside the question)"
+          value={q.additionalInfo ?? ''}
+          onChange={(e) => update('additionalInfo', e.target.value || undefined)}
+        />
         <Select label="Type" value={q.type} onChange={(e) => update('type', e.target.value as QuestionType)}>
           {TYPES.map((t) => (
             <option key={t.value} value={t.value}>{t.label}</option>

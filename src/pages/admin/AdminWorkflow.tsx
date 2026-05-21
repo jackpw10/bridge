@@ -38,7 +38,7 @@ export function AdminWorkflowPage() {
   }, [workflows, callTypes]);
 
   async function deleteOrphanWorkflow(wfId: string) {
-    if (!window.confirm('Delete this orphan workflow? It has no paired call type.')) return;
+    if (!window.confirm('Delete this orphan config? It has no paired call type.')) return;
     await setWorkflows(workflows.filter((w) => w.id !== wfId));
   }
 
@@ -71,10 +71,10 @@ export function AdminWorkflowPage() {
   async function add() {
     const ctId = uid('ct');
     const wfId = uid('wf');
-    const nextCt: CallType = { id: ctId, name: 'New workflow', subVersions: [] };
+    const nextCt: CallType = { id: ctId, name: 'New call type', letter: '', subVersions: [] };
     const nextWf: Workflow = {
       id: wfId,
-      name: 'New workflow',
+      name: 'New call type',
       callTypeId: ctId,
       subVersionRules: {},
       questions: [],
@@ -103,7 +103,7 @@ export function AdminWorkflowPage() {
       window.alert(`Cannot delete "${ct.name}" — still used by:\n• ${refs.join('\n• ')}`);
       return;
     }
-    if (!window.confirm(`Delete workflow "${ct.name}"?`)) return;
+    if (!window.confirm(`Delete call type "${ct.name}"?`)) return;
     await Promise.all([
       setCallTypes(callTypes.filter((c) => c.id !== ct.id)),
       setWorkflows(workflows.filter((w) => w.callTypeId !== ct.id)),
@@ -115,14 +115,15 @@ export function AdminWorkflowPage() {
       <div className="flex items-center justify-between">
         <div>
           <Link to="/admin" className="text-xs text-brand-600 hover:underline">← Admin</Link>
-          <h1 className="text-2xl font-bold text-slate-800">Triage workflows</h1>
+          <h1 className="text-2xl font-bold text-slate-800">Call Types</h1>
           <p className="text-sm text-slate-500">
-            Each workflow is a call type. Add sub-versions (e.g. LLTO / HLOC) if the
-            workflow has clinical variants — leave empty for a single-flow workflow.
-            Click "Edit workflow" for questions, post-triage, and process steps.
+            Add sub-versions (e.g. LLTO / HLOC) if the call type has clinical
+            variants — leave empty for a single-flow call type. The letter is
+            used in Process Card codes. Click "Edit" for triage questions,
+            post-triage, and the Action Card.
           </p>
         </div>
-        <Button onClick={add}>+ New workflow</Button>
+        <Button onClick={add}>+ New call type</Button>
       </div>
 
       <Card>
@@ -142,13 +143,21 @@ export function AdminWorkflowPage() {
               });
             }
             function removeSv(svId: string) {
-              if (!window.confirm('Remove sub-version? Process steps and service template content saved under this sub-version will become orphaned.')) return;
+              if (!window.confirm('Remove sub-version? Action Card and Process Card Template content saved under this sub-version will become orphaned.')) return;
               patchCt({ subVersions: ct.subVersions.filter((s) => s.id !== svId) });
             }
             return (
               <div key={ct.id} className="py-3 space-y-2">
-                <div className="grid grid-cols-[1fr_auto_auto_auto] gap-3 items-center">
+                <div className="grid grid-cols-[1fr_auto_auto_auto_auto] gap-3 items-center">
                   <Input value={ct.name} onChange={(e) => renamePair(ct.id, e.target.value)} />
+                  <Input
+                    className="w-16 text-center uppercase"
+                    maxLength={1}
+                    placeholder="A"
+                    title="Code letter"
+                    value={ct.letter}
+                    onChange={(e) => patchCt({ letter: e.target.value.toUpperCase().slice(0, 1) })}
+                  />
                   <div className="text-xs text-slate-500">
                     {u && (u.serviceTemplates.length + u.taCards.length + u.notifReqs > 0)
                       ? `${u.serviceTemplates.length} svc · ${u.taCards.length} TA · ${u.notifReqs} notif`
@@ -156,10 +165,10 @@ export function AdminWorkflowPage() {
                   </div>
                   {wf ? (
                     <Link to={`/admin/workflow/${wf.id}`}>
-                      <Button size="sm" variant="secondary">Edit workflow →</Button>
+                      <Button size="sm" variant="secondary">Edit →</Button>
                     </Link>
                   ) : (
-                    <span className="text-xs text-amber-600">no paired workflow</span>
+                    <span className="text-xs text-amber-600">not configured</span>
                   )}
                   <Button size="sm" variant="ghost" onClick={() => removePair(ct)}>Delete</Button>
                 </div>
@@ -168,7 +177,7 @@ export function AdminWorkflowPage() {
                     <span className="text-xs text-slate-500">
                       Sub-versions ({ct.subVersions.length}):{' '}
                       {ct.subVersions.length === 0
-                        ? <em>none — single-flow workflow</em>
+                        ? <em>none — single-flow call type</em>
                         : ct.subVersions.map((s) => s.name).join(', ')}
                     </span>
                     <Button size="sm" variant="secondary" onClick={addSv}>+ Add sub-version</Button>
@@ -184,15 +193,15 @@ export function AdminWorkflowPage() {
             );
           })}
           {callTypes.length === 0 && (
-            <div className="text-sm text-slate-400 py-4 text-center">No workflows yet.</div>
+            <div className="text-sm text-slate-400 py-4 text-center">No call types yet.</div>
           )}
         </div>
       </Card>
 
       {orphanWorkflows.length > 0 && (
         <Card
-          title="Orphan workflows"
-          description="Workflows whose call type no longer exists (left over from earlier versions, or from deleting a call type). They are hidden from the triage start dropdown. Delete them here to clean up."
+          title="Orphan call type configs"
+          description="Configurations whose call type no longer exists (left over from earlier versions, or from deleting a call type). They are hidden from the triage start dropdown. Delete them here to clean up."
         >
           <div className="divide-y divide-slate-100">
             {orphanWorkflows.map((w) => (

@@ -1,9 +1,11 @@
+import { useEffect } from 'react';
 import { useTriage } from '../../hooks/useTriage';
 import { useAppStore } from '../../store/appStore';
 import { Card } from '../ui/Card';
 import { Button } from '../ui/Button';
 import { Badge } from '../ui/Badge';
-import { Select, Textarea } from '../ui/Input';
+import { Textarea } from '../ui/Input';
+import { Combobox } from '../ui/Combobox';
 import { MultiSelect } from '../ui/MultiSelect';
 import { QuestionRenderer } from './QuestionRenderer';
 import type {
@@ -80,6 +82,26 @@ export function PreQuestionsPanel({ onDone }: Props) {
     t.goToWorkflow();
   }
 
+  // Button hotkeys: B = back to questions, G = Generate Case.
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.repeat || e.defaultPrevented) return;
+      const tag = (e.target as HTMLElement | null)?.tagName ?? '';
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+      if (e.key === 'b' || e.key === 'B') {
+        e.preventDefault();
+        backToQuestions();
+      } else if (e.key === 'g' || e.key === 'G') {
+        if (allAnswered()) {
+          e.preventDefault();
+          onDone();
+        }
+      }
+    }
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  });
+
   return (
     <div className="space-y-4">
       <div className="flex items-start justify-between">
@@ -87,7 +109,7 @@ export function PreQuestionsPanel({ onDone }: Props) {
           <h1 className="text-2xl font-bold text-slate-800">Post Triage Questions</h1>
           <Badge tone="blue">{t.activeWorkflow?.name}</Badge>
         </div>
-        <Button size="sm" variant="ghost" onClick={backToQuestions}>Back to questions</Button>
+        <Button size="sm" variant="ghost" onClick={backToQuestions}>(B)ack to questions</Button>
       </div>
 
       {isQuestions && postQs.length > 0 && (
@@ -174,8 +196,8 @@ export function PreQuestionsPanel({ onDone }: Props) {
       })}
 
       <div className="flex justify-end gap-2">
-        <Button variant="secondary" onClick={backToQuestions}>Back</Button>
-        <Button onClick={onDone} disabled={!allAnswered()}>Generate result</Button>
+        <Button variant="secondary" onClick={backToQuestions}>(B)ack</Button>
+        <Button onClick={onDone} disabled={!allAnswered()}>(G)enerate Case</Button>
       </div>
     </div>
   );
@@ -207,12 +229,12 @@ function PostTriageRow({
         </div>
       )}
       {q.type === 'dropdown' && (
-        <Select value={value} onChange={(e) => onChange(e.target.value)}>
-          <option value="">— select —</option>
-          {(q.options ?? []).map((o) => (
-            <option key={o} value={o}>{o}</option>
-          ))}
-        </Select>
+        <Combobox
+          value={value}
+          options={(q.options ?? []).map((o) => ({ value: o, label: o }))}
+          placeholder="Type to filter…"
+          onChange={onChange}
+        />
       )}
       {q.type === 'text' && (
         <Textarea value={value} onChange={(e) => onChange(e.target.value)} />

@@ -42,7 +42,7 @@ export function TriageStartPage() {
         <div>
           <h1 className="text-2xl font-bold text-slate-800">Start a New Case</h1>
           <p className="text-sm text-slate-500">
-            Pick the workflow that matches the call type, then click Start Case.
+            Pick the call type for this case, then click Start Case.
             Each case you start opens its own tab.
           </p>
         </div>
@@ -50,14 +50,14 @@ export function TriageStartPage() {
         {visibleWorkflows.length === 0 ? (
           <Card>
             <div className="text-sm text-slate-500">
-              No workflows configured yet. Ask an admin to set one up in Admin → Triage workflows.
+              No call types configured yet. Ask an admin to set one up in Admin → Call Types.
             </div>
           </Card>
         ) : (
           <Card>
             <div className="space-y-4">
               <Select
-                label="Workflow"
+                label="Call Type"
                 autoFocus
                 value={picked}
                 onChange={(e) => setPicked(e.target.value)}

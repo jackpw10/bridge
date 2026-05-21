@@ -22,6 +22,8 @@ export function AdminFacilitiesPage() {
     const f: Facility = {
       id: uid('f'),
       name: 'New facility',
+      abbreviation: '',
+      code: '',
       healthAuthorityId: '',
       onSiteServiceIds: [],
       referralPatterns: {},
@@ -40,6 +42,8 @@ export function AdminFacilitiesPage() {
     const rows = facilities.map((f) => ({
       id: f.id,
       name: f.name,
+      abbreviation: f.abbreviation,
+      code: f.code,
       healthAuthorityId: f.healthAuthorityId,
       healthAuthorityName: haName(f.healthAuthorityId),
       onSiteServiceIds: f.onSiteServiceIds.join('|'),
@@ -56,7 +60,7 @@ export function AdminFacilitiesPage() {
         return;
       }
       // Headers we recognize
-      const expected = ['name', 'healthAuthorityName', 'healthAuthorityId', 'onSiteServiceIds', 'id'];
+      const expected = ['name', 'abbreviation', 'code', 'healthAuthorityName', 'healthAuthorityId', 'onSiteServiceIds', 'id'];
       const headers = Object.keys(rows[0]);
       const recognized = headers.filter((h) => expected.includes(h));
       if (recognized.length === 0) {
@@ -86,6 +90,8 @@ export function AdminFacilitiesPage() {
         const next: Facility = {
           id,
           name,
+          abbreviation: r.abbreviation ?? cur?.abbreviation ?? '',
+          code: r.code ?? cur?.code ?? '',
           healthAuthorityId: haId,
           onSiteServiceIds: (r.onSiteServiceIds ?? '').split('|').map((s) => s.trim()).filter(Boolean),
           referralPatterns: cur?.referralPatterns ?? {},

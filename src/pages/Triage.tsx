@@ -153,6 +153,47 @@ export function TriagePage() {
         }
       }
 
+      // Dropdown number-key hotkeys (1-9): pick that option and advance.
+      // Intercepted even with the combobox focused, so a digit picks rather
+      // than filtering by digit.
+      if (cur.type === 'dropdown' && /^[1-9]$/.test(e.key)) {
+        const opts = cur.options ?? [];
+        const idx = Number(e.key) - 1;
+        if (idx < opts.length) {
+          e.preventDefault();
+          (target as HTMLElement | null)?.blur?.();
+          t.setAnswer(cur.id, opts[idx].label);
+          t.goNext();
+          return;
+        }
+      }
+
+      // Button hotkeys (first letter): B = Back, F = Forward, A = acknowledge
+      // a Transport Advisor card. Ignored while typing in a field.
+      if (!inEditable) {
+        if (e.key === 'b' || e.key === 'B') {
+          if (t.currentIndex > 0) {
+            e.preventDefault();
+            t.goPrev();
+            return;
+          }
+        }
+        if (e.key === 'f' || e.key === 'F') {
+          if (canAdvanceFresh(cur)) {
+            e.preventDefault();
+            t.goNext();
+            return;
+          }
+        }
+        if (e.key === 'a' || e.key === 'A') {
+          if (unseenTa.length > 0) {
+            e.preventDefault();
+            t.markTaShown(unseenTa[0].card.id);
+            return;
+          }
+        }
+      }
+
       if (e.key === 'Enter') {
         if (tag === 'TEXTAREA') return;
         if (canAdvanceFresh(cur)) {
@@ -251,25 +292,38 @@ export function TriagePage() {
         </Button>
       </div>
       <ProgressBar current={t.currentIndex} total={t.visibleQuestions.length} />
-      <Card
-        title={`Question ${t.currentIndex + 1} of ${t.visibleQuestions.length}`}
-      >
-        <div className="space-y-4">
-          <div>
-            <div className="text-lg font-medium text-slate-800">{cur.text}</div>
-            {cur.type === 'triage' && (
-              <Badge tone="purple" className="mt-1">Yes → LLTO · No → HLOC</Badge>
-            )}
-          </div>
-          <QuestionRenderer
-            key={cur.id}
-            question={cur}
-            answers={t.answers}
-            setAnswer={t.setAnswer}
-            callTypeId={t.callTypeId}
-          />
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+        {/* Left: question + answer. Fixed 2/3 width — stays put when the QAI
+            box is hidden, rather than stretching to full width. */}
+        <div className="lg:col-span-2">
+          <Card title={`Question ${t.currentIndex + 1} of ${t.visibleQuestions.length}`}>
+            <div className="space-y-4">
+              <div>
+                <div className="text-lg font-medium text-slate-800">{cur.text}</div>
+                {cur.type === 'triage' && (
+                  <Badge tone="purple" className="mt-1">Yes → LLTO · No → HLOC</Badge>
+                )}
+              </div>
+              <QuestionRenderer
+                key={cur.id}
+                question={cur}
+                answers={t.answers}
+                setAnswer={t.setAnswer}
+                callTypeId={t.callTypeId}
+                onAdvance={t.goNext}
+              />
+            </div>
+          </Card>
         </div>
-      </Card>
+        {/* Right: question additional info — only when set. */}
+        {cur.additionalInfo && cur.additionalInfo.trim() && (
+          <div className="lg:col-span-1">
+            <Card title="Additional Info">
+              <p className="text-sm whitespace-pre-wrap text-slate-700">{cur.additionalInfo}</p>
+            </Card>
+          </div>
+        )}
+      </div>
 
       {unseenTa.length > 0 && (
         <div className="space-y-3">
@@ -288,7 +342,7 @@ export function TriagePage() {
               )}
               <div className="mt-3 flex justify-end">
                 <Button size="sm" onClick={() => t.markTaShown(item.card.id)}>
-                  Acknowledge & continue
+                  (A)cknowledge &amp; continue
                 </Button>
               </div>
             </Card>
@@ -297,8 +351,8 @@ export function TriagePage() {
       )}
 
       <div className="flex justify-between">
-        <Button variant="secondary" onClick={t.goPrev} disabled={t.currentIndex === 0}>Back</Button>
-        <Button onClick={t.goNext} disabled={!canAdvance()}>Next</Button>
+        <Button variant="secondary" onClick={t.goPrev} disabled={t.currentIndex === 0}>(B)ack</Button>
+        <Button onClick={t.goNext} disabled={!canAdvance()}>(F)orward</Button>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">

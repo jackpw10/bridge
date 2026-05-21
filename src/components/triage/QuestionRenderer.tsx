@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react';
 import type { WorkflowQuestion } from '../../types';
 import { useAppStore } from '../../store/appStore';
-import { Input, Select } from '../ui/Input';
+import { Input } from '../ui/Input';
 import { Combobox, type ComboboxHandle } from '../ui/Combobox';
 import { MultiSelect } from '../ui/MultiSelect';
 import { Button } from '../ui/Button';
@@ -12,11 +12,14 @@ interface Props {
   answers: Record<string, string>;
   setAnswer: (qid: string, value: string, subKeys?: Record<string, string>) => void;
   // The case's call type — used to filter specialty-service options to the
-  // services enabled for this workflow.
+  // services enabled for this call type.
   callTypeId?: string;
+  // When provided, picking a dropdown option auto-advances to the next
+  // question (Initial Triage Questions only).
+  onAdvance?: () => void;
 }
 
-export function QuestionRenderer({ question, answers, setAnswer, callTypeId }: Props) {
+export function QuestionRenderer({ question, answers, setAnswer, callTypeId, onAdvance }: Props) {
   const facilities = useAppStore((s) => s.facilities);
   const specialty = useAppStore((s) => s.specialty);
   const diagnoses = useAppStore((s) => s.diagnoses);
@@ -26,19 +29,17 @@ export function QuestionRenderer({ question, answers, setAnswer, callTypeId }: P
 
   const value = answers[question.id] ?? '';
 
-  // Explicit focus on mount for text/dropdown — the `autoFocus` attribute is
+  // Explicit focus on mount for the text input — the `autoFocus` attribute is
   // unreliable when the previous question's element still held focus at the
   // moment React commits the new tree. We focus via ref + a microtask to
   // guarantee the element exists and is interactable.
   const inputRef = useRef<HTMLInputElement>(null);
-  const selectRef = useRef<HTMLSelectElement>(null);
   // The override "Reason" picker — focused after the user picks a custom
   // destination, so the keyboard flow chains facility → reason → next.
   const reasonComboRef = useRef<ComboboxHandle>(null);
   useEffect(() => {
     const t = window.setTimeout(() => {
       inputRef.current?.focus();
-      selectRef.current?.focus();
     }, 0);
     return () => window.clearTimeout(t);
   }, []);
@@ -113,20 +114,22 @@ export function QuestionRenderer({ question, answers, setAnswer, callTypeId }: P
   }
 
   if (question.type === 'dropdown') {
+    // Type-to-filter combobox (options are numbered for the 1-9 hotkeys).
+    const opts = (question.options ?? []).map((o, i) => ({
+      value: o.label,
+      label: `${i + 1}. ${o.label}`,
+    }));
     return (
-      <Select
-        ref={selectRef}
+      <Combobox
         autoFocus
+        options={opts}
         value={value}
-        onChange={(e) => setAnswer(question.id, e.target.value)}
-      >
-        <option value="">— select —</option>
-        {(question.options ?? []).map((o) => (
-          <option key={o.label} value={o.label}>
-            {o.label}
-          </option>
-        ))}
-      </Select>
+        placeholder="Type to filter…"
+        onChange={(v) => {
+          setAnswer(question.id, v);
+          if (v && onAdvance) onAdvance();
+        }}
+      />
     );
   }
 
@@ -152,7 +155,6 @@ export function QuestionRenderer({ question, answers, setAnswer, callTypeId }: P
           autoFocus
           options={opts}
           value={facId}
-          allowEmpty
           onChange={(v) => {
             const lbl = facilities.find((f) => f.id === v)?.name ?? '';
             setAnswer(question.id, lbl || freeText, { facid: v, freetext: v ? '' : freeText });

@@ -62,6 +62,7 @@ $$;
 create table if not exists public.call_types (
   id           text primary key,
   name         text not null,
+  letter       text not null default '',
   sub_versions jsonb not null default '[]'::jsonb
 );
 
@@ -73,6 +74,8 @@ create table if not exists public.health_authorities (
 create table if not exists public.facilities (
   id                         text primary key,
   name                       text not null,
+  abbreviation               text not null default '',
+  code                       text not null default '',
   health_authority_id        text default '',
   on_site_service_ids        jsonb not null default '[]'::jsonb,
   referral_patterns          jsonb not null default '{}'::jsonb,
@@ -83,6 +86,7 @@ create table if not exists public.facilities (
 create table if not exists public.specialty_services (
   id                    text primary key,
   name                  text not null,
+  number                integer not null default 0,
   templates             jsonb not null default '{}'::jsonb,
   transport_advisor     jsonb not null default '{"enabled":false,"cards":[]}'::jsonb,
   enabled_call_type_ids jsonb not null default '["ct_high_acuity","ct_advice","ct_repate"]'::jsonb
@@ -134,10 +138,15 @@ create table if not exists public.reference_cards (
 -- database up to the current shape. Keep them in sync with the create blocks
 -- above whenever a column is added.
 alter table public.call_types         add column if not exists sub_versions      jsonb not null default '[]'::jsonb;
+alter table public.call_types         add column if not exists letter            text not null default '';
+
+alter table public.facilities         add column if not exists abbreviation      text not null default '';
+alter table public.facilities         add column if not exists code              text not null default '';
 
 alter table public.specialty_services add column if not exists templates             jsonb not null default '{}'::jsonb;
 alter table public.specialty_services add column if not exists transport_advisor     jsonb not null default '{"enabled":false,"cards":[]}'::jsonb;
 alter table public.specialty_services add column if not exists enabled_call_type_ids jsonb not null default '["ct_high_acuity","ct_advice","ct_repate"]'::jsonb;
+alter table public.specialty_services add column if not exists number                integer not null default 0;
 
 alter table public.workflows          add column if not exists call_type_id      text not null default '';
 alter table public.workflows          add column if not exists sub_version_rules jsonb not null default '{}'::jsonb;

@@ -17,6 +17,7 @@ import type {
 export interface CallTypeRow {
   id: string;
   name: string;
+  letter: string;
   sub_versions: unknown;
 }
 
@@ -24,18 +25,21 @@ export function callTypeFromRow(r: CallTypeRow): CallType {
   return {
     id: r.id,
     name: r.name,
+    letter: r.letter ?? '',
     subVersions: (r.sub_versions as CallType['subVersions']) ?? [],
   };
 }
 
 export function callTypeToRow(c: CallType): CallTypeRow {
-  return { id: c.id, name: c.name, sub_versions: c.subVersions };
+  return { id: c.id, name: c.name, letter: c.letter ?? '', sub_versions: c.subVersions };
 }
 
 // ---------- Facilities ----------
 export interface FacilityRow {
   id: string;
   name: string;
+  abbreviation: string;
+  code: string;
   health_authority_id: string;
   on_site_service_ids: unknown;
   referral_patterns: unknown;
@@ -47,6 +51,8 @@ export function facilityFromRow(r: FacilityRow): Facility {
   return {
     id: r.id,
     name: r.name,
+    abbreviation: r.abbreviation ?? '',
+    code: r.code ?? '',
     healthAuthorityId: r.health_authority_id ?? '',
     onSiteServiceIds: (r.on_site_service_ids as string[]) ?? [],
     referralPatterns: (r.referral_patterns as Facility['referralPatterns']) ?? {},
@@ -60,6 +66,8 @@ export function facilityToRow(f: Facility): FacilityRow {
   return {
     id: f.id,
     name: f.name,
+    abbreviation: f.abbreviation ?? '',
+    code: f.code ?? '',
     health_authority_id: f.healthAuthorityId,
     on_site_service_ids: f.onSiteServiceIds,
     referral_patterns: f.referralPatterns,
@@ -72,6 +80,7 @@ export function facilityToRow(f: Facility): FacilityRow {
 export interface SpecialtyServiceRow {
   id: string;
   name: string;
+  number: number;
   templates: unknown;
   transport_advisor: unknown;
   enabled_call_type_ids: unknown;
@@ -81,6 +90,7 @@ export function svcFromRow(r: SpecialtyServiceRow): SpecialtyService {
   return {
     id: r.id,
     name: r.name,
+    number: typeof r.number === 'number' ? r.number : 0,
     templates: (r.templates as SpecialtyService['templates']) ?? {},
     transportAdvisor: r.transport_advisor as SpecialtyService['transportAdvisor'],
     enabledCallTypeIds: (r.enabled_call_type_ids as string[]) ?? [],
@@ -91,6 +101,7 @@ export function svcToRow(s: SpecialtyService): SpecialtyServiceRow {
   return {
     id: s.id,
     name: s.name,
+    number: s.number ?? 0,
     templates: s.templates,
     transport_advisor: s.transportAdvisor,
     enabled_call_type_ids: s.enabledCallTypeIds ?? [],

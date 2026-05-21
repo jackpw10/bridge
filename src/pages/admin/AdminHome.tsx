@@ -3,7 +3,7 @@ import { Card } from '../../components/ui/Card';
 
 const tiles = [
   { to: '/admin/users', title: 'Users', desc: 'Manage user accounts and admin roles. New accounts sign up via /signup.' },
-  { to: '/admin/workflow', title: 'Triage workflows', desc: 'Create call types with their sub-versions, questions, post-triage cards, and process steps.' },
+  { to: '/admin/workflow', title: 'Call Types', desc: 'Create call types with their sub-versions, triage questions, post-triage cards, and action cards.' },
   { to: '/admin/health-authorities', title: 'Health Authorities', desc: 'The list of Health Authorities used by facilities and TA cards.' },
   { to: '/admin/facilities', title: 'Facilities', desc: 'Sites, on-site services, referral patterns, notifications.' },
   { to: '/admin/specialty', title: 'Specialty services', desc: 'LLTO / HLOC pre-questions, exception steps, Transport Advisor cards.' },

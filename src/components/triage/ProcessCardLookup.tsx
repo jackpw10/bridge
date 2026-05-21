@@ -1,10 +1,12 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useAppStore } from '../../store/appStore';
 import { Card } from '../ui/Card';
 import { Button } from '../ui/Button';
 import { Combobox } from '../ui/Combobox';
-import { Select } from '../ui/Input';
+import { Input, Select } from '../ui/Input';
+import { Badge } from '../ui/Badge';
 import type { ExceptionStep, TemplateQuestion } from '../../types';
+import { processCardCode, parseProcessCardCode } from '../../utils/processCardCode';
 
 interface Props {
   callTypeId: string;
@@ -12,54 +14,80 @@ interface Props {
     svcId: string,
     callTypeId: string,
     subVersionId: string | null,
-    facId: string
+    facId: string,
   ) => TemplateQuestion[];
   getActiveCardSteps: (
     svcId: string,
     callTypeId: string,
     subVersionId: string | null,
     facId: string,
-    preAnswers: Record<string, string>
+    preAnswers: Record<string, string>,
   ) => ExceptionStep[];
 }
 
-// Quick process-card lookup, shown on the result page beside the reference
-// cards. Pick a facility + service + sub-version (HLOC/LLTO), answer any
-// service-specific questions, and the matching process steps appear.
+// Quick Process Card lookup on the result page. Pick a facility + service +
+// sub-version, or type a Process Card code (NN-L-NNN) to jump straight there.
 export function ProcessCardLookup({ callTypeId, getActiveCardQs, getActiveCardSteps }: Props) {
   const facilities = useAppStore((s) => s.facilities);
   const specialty = useAppStore((s) => s.specialty);
+  const callTypes = useAppStore((s) => s.callTypes);
   const has = useAppStore((s) => s.healthAuthorities);
   const haName = (id: string) => has.find((h) => h.id === id)?.name ?? '';
 
   const [facId, setFacId] = useState('');
   const [svcId, setSvcId] = useState('');
+  // Defaults to the case's call type; a code search can switch it.
+  const [ctId, setCtId] = useState(callTypeId);
   const [subVersionId, setSubVersionId] = useState<'hloc' | 'llto'>('hloc');
   const [answers, setAnswers] = useState<Record<string, string>>({});
+  const [codeInput, setCodeInput] = useState('');
 
   const facilityOptions = facilities.map((f) => ({
     value: f.id,
-    label: f.name,
+    label: f.code ? `${f.name} (${f.code})` : f.name,
     meta: haName(f.healthAuthorityId),
   }));
 
   function clear() {
     setFacId('');
     setSvcId('');
+    setCtId(callTypeId);
     setSubVersionId('hloc');
     setAnswers({});
+    setCodeInput('');
+  }
+
+  // Resolve a typed code (NN-L-NNN) into a facility / service / call type.
+  function applyCode(raw: string) {
+    setCodeInput(raw);
+    const parsed = parseProcessCardCode(raw);
+    if (!parsed) return;
+    const fac = facilities.find((f) => f.code === parsed.facilityCode);
+    const svc = specialty.find((s) => s.number === parsed.serviceNumber);
+    const ct = callTypes.find((c) => c.letter.toUpperCase() === parsed.letter);
+    if (fac) setFacId(fac.id);
+    if (svc) setSvcId(svc.id);
+    if (ct) setCtId(ct.id);
+    if (fac || svc) setAnswers({});
   }
 
   const ready = !!facId && !!svcId;
-  const qs = ready ? getActiveCardQs(svcId, callTypeId, subVersionId, facId) : [];
-  const steps = ready
-    ? getActiveCardSteps(svcId, callTypeId, subVersionId, facId, answers)
-    : [];
+  const qs = ready ? getActiveCardQs(svcId, ctId, subVersionId, facId) : [];
+  const steps = ready ? getActiveCardSteps(svcId, ctId, subVersionId, facId, answers) : [];
+
+  const currentCode = useMemo(() => {
+    if (!ready) return '';
+    return processCardCode(
+      specialty.find((s) => s.id === svcId),
+      callTypes.find((c) => c.id === ctId),
+      facilities.find((f) => f.id === facId),
+    );
+  }, [ready, specialty, callTypes, facilities, svcId, ctId, facId]);
 
   return (
     <Card
       title="Process card lookup"
-      description="Look up a process for any facility / service."
+      description="Pick a facility / service, or type a Process Card code."
       actions={
         <Button size="sm" variant="ghost" onClick={clear}>
           Clear
@@ -67,12 +95,20 @@ export function ProcessCardLookup({ callTypeId, getActiveCardQs, getActiveCardSt
       }
     >
       <div className="space-y-2">
+        <Input
+          label="Process Card code"
+          placeholder="e.g. 10-A-303"
+          value={codeInput}
+          onChange={(e) => applyCode(e.target.value)}
+        />
         <Combobox
           label="Facility"
           options={facilityOptions}
           value={facId}
-          onChange={setFacId}
-          allowEmpty
+          onChange={(v) => {
+            setFacId(v);
+            setAnswers({});
+          }}
           placeholder="Search facilities…"
         />
         <Select
@@ -111,10 +147,15 @@ export function ProcessCardLookup({ callTypeId, getActiveCardQs, getActiveCardSt
 
       {!ready ? (
         <div className="text-xs text-slate-400 mt-3">
-          Pick a facility and service to see the process.
+          Pick a facility and service, or type a code, to see the process.
         </div>
       ) : (
         <div className="mt-3 space-y-3">
+          {currentCode && (
+            <div>
+              <Badge tone="blue">Code: {currentCode}</Badge>
+            </div>
+          )}
           {qs.length > 0 && (
             <div>
               <div className="text-xs font-semibold uppercase text-slate-500 mb-1">
@@ -153,7 +194,7 @@ export function ProcessCardLookup({ callTypeId, getActiveCardQs, getActiveCardSt
           )}
           <div>
             <div className="text-xs font-semibold uppercase text-slate-500 mb-1">
-              Process
+              Process Card
             </div>
             {steps.length === 0 ? (
               <div className="text-xs text-slate-400">No steps apply.</div>

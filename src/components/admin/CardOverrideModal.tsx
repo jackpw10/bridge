@@ -15,6 +15,7 @@ import { Badge } from '../ui/Badge';
 import { Toggle } from '../ui/Toggle';
 import { DragList } from '../ui/DragList';
 import { uid } from '../../utils/id';
+import { processCardCode } from '../../utils/processCardCode';
 
 interface Props {
   facilityId: string;
@@ -48,6 +49,8 @@ export function CardOverrideModal({
   onSave,
 }: Props) {
   const callTypes = useAppStore((s) => s.callTypes);
+  const facilities = useAppStore((s) => s.facilities);
+  const facility = facilities.find((f) => f.id === facilityId);
 
   const [tabCtId, setTabCtId] = useState<string>('');
   const [tabSvId, setTabSvId] = useState<string>('default');
@@ -171,7 +174,7 @@ export function CardOverrideModal({
       open
       onClose={onClose}
       size="xl"
-      title={`Card override · ${facilityName} · ${service.name}`}
+      title={`Process Card · ${facilityName} · ${service.name}`}
       footer={
         <>
           <Button variant="ghost" onClick={onClose}>Cancel</Button>
@@ -198,6 +201,11 @@ export function CardOverrideModal({
                 {ct.name}
               </button>
             ))}
+          </div>
+          <div className="mb-2">
+            <Badge tone="blue">
+              Code: {processCardCode(service, activeCallType, facility)}
+            </Badge>
           </div>
           {subTabs.length > 0 && (
             <div className="flex flex-wrap gap-2 mb-4">

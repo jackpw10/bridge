@@ -269,6 +269,69 @@ async function migrateV5() {
   }
 }
 
+// =========================================================================
+// CODE BACKFILL: assign the new identifier fields (call-type letter,
+// 3-digit facility code, specialty-service number) to any existing rows
+// that lack them. Alphabetical by name. Idempotent — once every row has a
+// value it's a no-op. Wrapped by the caller so a missing column (schema not
+// yet applied) doesn't break the whole load.
+// =========================================================================
+async function backfillCodes() {
+  // ---- Call type letters (A, B, C…) ----
+  const { data: cts, error: ctErr } = await supabase
+    .from('call_types')
+    .select('id, name, letter');
+  if (ctErr) throw ctErr;
+  const ctRows = (cts ?? []) as Array<{ id: string; name: string; letter: string | null }>;
+  const ctMissing = ctRows.filter((r) => !r.letter);
+  if (ctMissing.length) {
+    const used = new Set(
+      ctRows.map((r) => (r.letter ?? '').toUpperCase()).filter(Boolean)
+    );
+    let code = 65; // 'A'
+    for (const r of [...ctMissing].sort((a, b) => a.name.localeCompare(b.name))) {
+      while (used.has(String.fromCharCode(code))) code++;
+      const letter = String.fromCharCode(code);
+      used.add(letter);
+      code++;
+      await supabase.from('call_types').update({ letter }).eq('id', r.id);
+    }
+  }
+
+  // ---- Facility codes (100, 101…) ----
+  const { data: facs } = await supabase.from('facilities').select('id, name, code');
+  const facRows = (facs ?? []) as Array<{ id: string; name: string; code: string | null }>;
+  const facMissing = facRows.filter((r) => !r.code);
+  if (facMissing.length) {
+    const used = new Set(facRows.map((r) => r.code ?? '').filter(Boolean));
+    let n = 100;
+    for (const r of [...facMissing].sort((a, b) => a.name.localeCompare(b.name))) {
+      while (used.has(String(n))) n++;
+      const code = String(n);
+      used.add(code);
+      n++;
+      await supabase.from('facilities').update({ code }).eq('id', r.id);
+    }
+  }
+
+  // ---- Service numbers (1, 2…) ----
+  const { data: svcs } = await supabase.from('specialty_services').select('id, name, number');
+  const svcRows = (svcs ?? []) as Array<{ id: string; name: string; number: number | null }>;
+  const svcMissing = svcRows.filter((r) => !r.number);
+  if (svcMissing.length) {
+    const used = new Set(
+      svcRows.map((r) => r.number ?? 0).filter((v) => v > 0)
+    );
+    let n = 1;
+    for (const r of [...svcMissing].sort((a, b) => a.name.localeCompare(b.name))) {
+      while (used.has(n)) n++;
+      used.add(n);
+      await supabase.from('specialty_services').update({ number: n }).eq('id', r.id);
+      n++;
+    }
+  }
+}
+
 // NOTE: A migration v4 used to live here. It was intentionally removed
 // because, after sub-versions were collapsed back from 4-per-HA to 2-per-HA,
 // v4's detection logic ("skip if llto_std exists") inverted: the current
@@ -360,6 +423,13 @@ async function doLoadAllData(): Promise<void> {
   try {
     await migrateV5();
     await seedIfEmpty();
+    // Backfill new identifier fields. Isolated so a not-yet-applied schema
+    // (missing column) degrades gracefully instead of failing the load.
+    try {
+      await backfillCodes();
+    } catch (e) {
+      console.warn('Code backfill skipped (apply schema.sql to enable):', e);
+    }
     const [
       { data: ctRows },
       { data: wfRows },

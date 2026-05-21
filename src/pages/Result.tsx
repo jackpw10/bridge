@@ -152,7 +152,7 @@ export function ResultPage() {
 
     if (t.activeProcessSteps.length) {
       lines.push('');
-      lines.push('Process steps:');
+      lines.push('Action Card:');
       t.activeProcessSteps.forEach((s, i) => lines.push(`  ${i + 1}. ${s.text}`));
     }
 
@@ -253,8 +253,8 @@ export function ResultPage() {
             <div className="text-sm text-red-700 bg-red-50 border border-red-200 rounded p-3">
               <strong>Could not determine the case sub-version.</strong> None of the workflow's
               sub-version selection rules matched the current answers. Go back and complete
-              any missing workflow or post-triage answers, or check the rules in{' '}
-              <strong>Admin → Triage workflows</strong>.
+              any missing triage or post-triage answers, or check the rules in{' '}
+              <strong>Admin → Call Types</strong>.
             </div>
             <Button
               variant="secondary"
@@ -295,7 +295,7 @@ export function ResultPage() {
           {t.acQueue.length === 0 ? (
             <Card>
               <div className="text-sm text-slate-500">
-                No service/destination was selected. Generic process steps below still apply.
+                No service/destination was selected. The Action Card below still applies.
               </div>
             </Card>
           ) : (
@@ -358,9 +358,9 @@ export function ResultPage() {
             </div>
           )}
 
-          <Card title="Generic process steps">
+          <Card title="Action Card">
             {t.activeProcessSteps.length === 0 ? (
-              <div className="text-sm text-slate-400">None configured for this workflow.</div>
+              <div className="text-sm text-slate-400">None configured for this call type.</div>
             ) : (
               <ol className="list-decimal pl-5 space-y-1 text-sm">
                 {t.activeProcessSteps.map((s) => <li key={s.id}>{s.text}</li>)}
@@ -409,7 +409,6 @@ export function ResultPage() {
                 options={refOptions}
                 value={refOpen}
                 onChange={setRefOpen}
-                allowEmpty
                 placeholder="Type to find a reference card by name or code…"
               />
               {refSelected && (
