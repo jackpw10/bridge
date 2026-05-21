@@ -10,6 +10,9 @@ interface Props {
   label?: string;
   className?: string;
   autoFocus?: boolean;
+  // When true, pressing Enter with a non-empty filter that matches no option
+  // adds the typed text itself as a value (free-text entry).
+  allowCreate?: boolean;
 }
 
 export function MultiSelect({
@@ -20,6 +23,7 @@ export function MultiSelect({
   label,
   className,
   autoFocus,
+  allowCreate,
 }: Props) {
   const [open, setOpen] = useState(!!autoFocus);
   const [query, setQuery] = useState('');
@@ -79,6 +83,13 @@ export function MultiSelect({
         e.preventDefault();
         const o = filtered[activeIndex];
         if (o) toggle(o.value);
+      } else if (allowCreate) {
+        // No option matches — add the typed text itself as a value. We do NOT
+        // preventDefault here so the page-level Enter handler can advance to
+        // the next question once this new value lands in the answer.
+        const text = query.trim();
+        if (text && !value.includes(text)) onChange([...value, text]);
+        setQuery('');
       }
     } else if (e.key === 'Escape') {
       e.preventDefault();
@@ -151,7 +162,11 @@ export function MultiSelect({
             />
           </div>
           {filtered.length === 0 ? (
-            <div className="px-3 py-2 text-sm text-slate-400">No matches</div>
+            <div className="px-3 py-2 text-sm text-slate-400">
+              {allowCreate && query.trim()
+                ? `Press Enter to add “${query.trim()}”`
+                : 'No matches'}
+            </div>
           ) : (
             filtered.map((o, idx) => {
               const isActive = idx === activeIndex;

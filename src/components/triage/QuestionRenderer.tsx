@@ -217,9 +217,12 @@ export function QuestionRenderer({ question, answers, setAnswer, callTypeId, onA
     return (
       <MultiSelect
         autoFocus
+        allowCreate
         options={opts}
         value={dxs}
         onChange={(v) => {
+          // Free-text entries are stored as the raw string; the `?? id`
+          // fallback renders them as-is since they have no diagnosis record.
           const lbl = v.map((id) => diagnoses.find((d) => d.id === id)?.text ?? id).join(', ');
           setAnswer(question.id, lbl, { dxs: JSON.stringify(v) });
         }}
