@@ -432,6 +432,7 @@ export function ResultPage() {
             </Card>
 
             <ProcessCardLookup
+              key={t.callTypeId}
               callTypeId={t.callTypeId}
               getActiveCardQs={t.getActiveCardQs}
               getActiveCardSteps={t.getActiveCardSteps}

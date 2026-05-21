@@ -138,33 +138,21 @@ export function TriagePage() {
       const tag = target?.tagName ?? '';
       const inEditable = tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT';
 
+      // Yes/No: the hotkey picks the answer AND advances to the next question.
       if (cur.type === 'yesno' || cur.type === 'triage') {
         if (!inEditable) {
           if (e.key === 'y' || e.key === 'Y') {
             e.preventDefault();
             t.setAnswer(cur.id, 'Yes');
+            t.goNext();
             return;
           }
           if (e.key === 'n' || e.key === 'N') {
             e.preventDefault();
             t.setAnswer(cur.id, 'No');
+            t.goNext();
             return;
           }
-        }
-      }
-
-      // Dropdown number-key hotkeys (1-9): pick that option and advance.
-      // Intercepted even with the combobox focused, so a digit picks rather
-      // than filtering by digit.
-      if (cur.type === 'dropdown' && /^[1-9]$/.test(e.key)) {
-        const opts = cur.options ?? [];
-        const idx = Number(e.key) - 1;
-        if (idx < opts.length) {
-          e.preventDefault();
-          (target as HTMLElement | null)?.blur?.();
-          t.setAnswer(cur.id, opts[idx].label);
-          t.goNext();
-          return;
         }
       }
 

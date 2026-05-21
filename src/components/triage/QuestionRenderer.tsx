@@ -99,7 +99,10 @@ export function QuestionRenderer({ question, answers, setAnswer, callTypeId, onA
           <Button
             key={o.value}
             variant={value === o.value ? 'primary' : 'secondary'}
-            onClick={() => setAnswer(question.id, o.value)}
+            onClick={() => {
+              setAnswer(question.id, o.value);
+              if (onAdvance) onAdvance();
+            }}
           >
             ({o.hotkey}){o.rest}
           </Button>
@@ -114,14 +117,13 @@ export function QuestionRenderer({ question, answers, setAnswer, callTypeId, onA
   }
 
   if (question.type === 'dropdown') {
-    // Type-to-filter combobox (options are numbered for the 1-9 hotkeys).
-    const opts = (question.options ?? []).map((o, i) => ({
-      value: o.label,
-      label: `${i + 1}. ${o.label}`,
-    }));
+    // Numbered type-to-filter combobox: shows the first 9 matches as 1-9,
+    // a digit (or Enter) picks one and auto-advances.
+    const opts = (question.options ?? []).map((o) => ({ value: o.label, label: o.label }));
     return (
       <Combobox
         autoFocus
+        numbered
         options={opts}
         value={value}
         placeholder="Type to filter…"
@@ -153,6 +155,7 @@ export function QuestionRenderer({ question, answers, setAnswer, callTypeId, onA
       <div className="space-y-2">
         <Combobox
           autoFocus
+          numbered
           options={opts}
           value={facId}
           onChange={(v) => {
@@ -300,6 +303,7 @@ export function QuestionRenderer({ question, answers, setAnswer, callTypeId, onA
               <Combobox
                 label="Custom destination"
                 autoFocus
+                numbered
                 options={filteredCandidates}
                 value={customId}
                 onChange={(v) => {
@@ -318,6 +322,7 @@ export function QuestionRenderer({ question, answers, setAnswer, callTypeId, onA
               <Combobox
                 ref={reasonComboRef}
                 label="Reason for override"
+                numbered
                 value={reasonId}
                 options={reasons.map((r) => ({ value: r.id, label: r.text }))}
                 placeholder="Pick a reason…"

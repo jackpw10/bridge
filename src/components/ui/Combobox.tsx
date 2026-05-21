@@ -31,6 +31,9 @@ interface Props {
   className?: string;
   allowEmpty?: boolean;
   autoFocus?: boolean;
+  // Numbered mode: show only the first 9 filtered results, prefixed 1-9;
+  // pressing a digit picks that result.
+  numbered?: boolean;
 }
 
 export const Combobox = forwardRef<ComboboxHandle, Props>(function Combobox(
@@ -44,6 +47,7 @@ export const Combobox = forwardRef<ComboboxHandle, Props>(function Combobox(
     className,
     allowEmpty,
     autoFocus,
+    numbered,
   },
   ref,
 ) {
@@ -86,12 +90,14 @@ export const Combobox = forwardRef<ComboboxHandle, Props>(function Combobox(
   }, [query, options, display]);
 
   // Items the keyboard can land on. Index 0 reserved for "(none)" if allowed.
+  // In numbered mode only the first 9 filtered results are shown.
   const navItems = useMemo(() => {
     const items: Array<{ kind: 'none' } | { kind: 'opt'; opt: ComboOption }> = [];
     if (allowEmpty) items.push({ kind: 'none' });
-    for (const o of filtered) items.push({ kind: 'opt', opt: o });
+    const opts = numbered ? filtered.slice(0, 9) : filtered;
+    for (const o of opts) items.push({ kind: 'opt', opt: o });
     return items;
-  }, [allowEmpty, filtered]);
+  }, [allowEmpty, filtered, numbered]);
 
   // Reset highlight when the list changes or the popup opens.
   useEffect(() => {
@@ -119,6 +125,15 @@ export const Combobox = forwardRef<ComboboxHandle, Props>(function Combobox(
   }
 
   function onKeyDown(e: KeyboardEvent<HTMLInputElement>) {
+    // Numbered mode: a digit picks that result directly.
+    if (numbered && /^[1-9]$/.test(e.key)) {
+      const idx = Number(e.key) - 1;
+      if (idx < navItems.length) {
+        e.preventDefault();
+        commit(idx);
+        return;
+      }
+    }
     if (e.key === 'ArrowDown') {
       e.preventDefault();
       setOpen(true);
@@ -214,7 +229,12 @@ export const Combobox = forwardRef<ComboboxHandle, Props>(function Combobox(
                     !isActive && !isSelected && 'hover:bg-brand-50'
                   )}
                 >
-                  <div className="font-medium">{o.label}</div>
+                  <div className="font-medium">
+                    {numbered && (
+                      <span className="text-brand-600 font-semibold mr-1.5">{idx + 1}.</span>
+                    )}
+                    {o.label}
+                  </div>
                   {o.meta && (
                     <div className="text-xs text-slate-400">{o.meta}</div>
                   )}

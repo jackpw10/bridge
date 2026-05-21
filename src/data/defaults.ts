@@ -11,28 +11,29 @@ import type {
 
 // All IDs below are static so cross-references survive a reset.
 
+// One code letter per sub-version (or per call type when it has none).
 export const defaultCallTypes: CallType[] = [
   {
     id: 'ct_high_acuity',
     name: 'High Acuity',
-    letter: 'A',
+    letter: '',
     subVersions: [
-      { id: 'llto', name: 'LLTO' },
-      { id: 'hloc', name: 'HLOC' },
+      { id: 'llto', name: 'LLTO', letter: 'A' },
+      { id: 'hloc', name: 'HLOC', letter: 'B' },
     ],
   },
   {
     id: 'ct_advice',
     name: 'Advice',
-    letter: 'B',
+    letter: '',
     subVersions: [
-      { id: 'llto', name: 'LLTO' },
-      { id: 'hloc', name: 'HLOC' },
+      { id: 'llto', name: 'LLTO', letter: 'C' },
+      { id: 'hloc', name: 'HLOC', letter: 'D' },
     ],
   },
-  { id: 'ct_repate', name: 'Repate', letter: 'C', subVersions: [{ id: 'default', name: 'Default' }] },
-  { id: 'ct_scheduled', name: 'Scheduled', letter: 'D', subVersions: [{ id: 'default', name: 'Default' }] },
-  { id: 'ct_discharge', name: 'Discharge', letter: 'E', subVersions: [{ id: 'default', name: 'Default' }] },
+  { id: 'ct_repate', name: 'Repate', letter: '', subVersions: [{ id: 'default', name: 'Default', letter: 'E' }] },
+  { id: 'ct_scheduled', name: 'Scheduled', letter: '', subVersions: [{ id: 'default', name: 'Default', letter: 'F' }] },
+  { id: 'ct_discharge', name: 'Discharge', letter: '', subVersions: [{ id: 'default', name: 'Default', letter: 'G' }] },
 ];
 
 export const defaultHealthAuthorities: HealthAuthority[] = [

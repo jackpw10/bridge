@@ -23,11 +23,14 @@ export interface Session {
 export interface CallTypeSubVersion {
   id: string;
   name: string;
+  // Single character used in Process Card codes for this sub-version.
+  letter: string;
 }
 export interface CallType {
   id: string;
   name: string;
-  // Single character used in Process Card codes (e.g. 'A').
+  // Code letter — used only when the call type has NO sub-versions.
+  // When it has sub-versions, each sub-version carries its own letter.
   letter: string;
   subVersions: CallTypeSubVersion[];
 }

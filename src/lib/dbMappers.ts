@@ -22,11 +22,12 @@ export interface CallTypeRow {
 }
 
 export function callTypeFromRow(r: CallTypeRow): CallType {
+  const rawSubs = (r.sub_versions as Array<{ id: string; name: string; letter?: string }>) ?? [];
   return {
     id: r.id,
     name: r.name,
     letter: r.letter ?? '',
-    subVersions: (r.sub_versions as CallType['subVersions']) ?? [],
+    subVersions: rawSubs.map((s) => ({ id: s.id, name: s.name, letter: s.letter ?? '' })),
   };
 }
 

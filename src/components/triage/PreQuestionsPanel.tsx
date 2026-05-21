@@ -82,7 +82,44 @@ export function PreQuestionsPanel({ onDone }: Props) {
     t.goToWorkflow();
   }
 
-  // Button hotkeys: B = back to questions, G = Generate Case.
+  // Flat, ordered list of every answerable item on this screen — post-triage
+  // questions then service pre-questions. The "active" one is simply the first
+  // still-unanswered item, so answering it sequences the flow automatically.
+  interface PostItem {
+    key: string;
+    qType: string;
+    value: string;
+    set: (v: string) => void;
+  }
+  const postItems: PostItem[] = [];
+  if (isQuestions) {
+    for (const q of postQs) {
+      postItems.push({
+        key: `pt:${q.id}`,
+        qType: q.type,
+        value: t.postTriageAnswers[q.id] ?? '',
+        set: (v) => t.setPostTriageAnswer(q.id, v),
+      });
+    }
+    if (showServicePreQs) {
+      for (const item of t.acQueue) {
+        const qs = t.getActiveCardQs(item.svcId, t.callTypeId, t.subVersionId, item.destFacId);
+        for (const q of qs) {
+          const key = `${item.svcId}:${q.id}`;
+          postItems.push({
+            key: `svc:${key}`,
+            qType: q.type,
+            value: t.acStates[key] ?? '',
+            set: (v) => t.setAcAnswer(key, v),
+          });
+        }
+      }
+    }
+  }
+  const firstUnanswered = postItems.find((it) => !it.value.trim());
+
+  // Hotkeys: B = back, G = Generate Case, and Y/N answers the first
+  // unanswered yes/no question (which then moves the highlight forward).
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
       if (e.repeat || e.defaultPrevented) return;
@@ -91,10 +128,22 @@ export function PreQuestionsPanel({ onDone }: Props) {
       if (e.key === 'b' || e.key === 'B') {
         e.preventDefault();
         backToQuestions();
-      } else if (e.key === 'g' || e.key === 'G') {
+        return;
+      }
+      if (e.key === 'g' || e.key === 'G') {
         if (allAnswered()) {
           e.preventDefault();
           onDone();
+        }
+        return;
+      }
+      if (firstUnanswered && firstUnanswered.qType === 'yesno') {
+        if (e.key === 'y' || e.key === 'Y') {
+          e.preventDefault();
+          firstUnanswered.set('Yes');
+        } else if (e.key === 'n' || e.key === 'N') {
+          e.preventDefault();
+          firstUnanswered.set('No');
         }
       }
     }
@@ -119,6 +168,7 @@ export function PreQuestionsPanel({ onDone }: Props) {
               <PostTriageRow
                 key={q.id}
                 q={q}
+                active={firstUnanswered?.key === `pt:${q.id}`}
                 value={t.postTriageAnswers[q.id] ?? ''}
                 onChange={(v) => t.setPostTriageAnswer(q.id, v)}
               />
@@ -178,8 +228,12 @@ export function PreQuestionsPanel({ onDone }: Props) {
                     text: q.text,
                     options: q.options?.map((o) => ({ label: o })),
                   };
+                  const active = firstUnanswered?.key === `svc:${key}`;
                   return (
-                    <div key={key}>
+                    <div
+                      key={key}
+                      className={active ? 'ring-2 ring-brand-400 rounded-md p-2 -m-2' : ''}
+                    >
                       <div className="text-sm font-medium text-slate-700 mb-1">{q.text}</div>
                       <QuestionRenderer
                         question={wf}
@@ -207,23 +261,30 @@ function PostTriageRow({
   q,
   value,
   onChange,
+  active,
 }: {
   q: PostTriageQuestion;
   value: string;
   onChange: (v: string) => void;
+  active?: boolean;
 }) {
   return (
-    <div>
+    <div className={active ? 'ring-2 ring-brand-400 rounded-md p-2 -m-2' : ''}>
       <div className="text-sm font-medium text-slate-700 mb-1">{q.text}</div>
       {q.type === 'yesno' && (
         <div className="flex gap-2">
-          {['Yes', 'No'].map((opt) => (
+          {(
+            [
+              { value: 'Yes', label: '(Y)es' },
+              { value: 'No', label: '(N)o' },
+            ] as const
+          ).map((opt) => (
             <Button
-              key={opt}
-              variant={value === opt ? 'primary' : 'secondary'}
-              onClick={() => onChange(opt)}
+              key={opt.value}
+              variant={value === opt.value ? 'primary' : 'secondary'}
+              onClick={() => onChange(opt.value)}
             >
-              {opt}
+              {opt.label}
             </Button>
           ))}
         </div>

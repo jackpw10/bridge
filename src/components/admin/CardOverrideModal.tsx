@@ -204,7 +204,7 @@ export function CardOverrideModal({
           </div>
           <div className="mb-2">
             <Badge tone="blue">
-              Code: {processCardCode(service, activeCallType, facility)}
+              Code: {processCardCode(service, activeCallType, tabSvId, facility)}
             </Badge>
           </div>
           {subTabs.length > 0 && (

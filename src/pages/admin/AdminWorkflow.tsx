@@ -5,7 +5,7 @@ import { Card } from '../../components/ui/Card';
 import { Button } from '../../components/ui/Button';
 import { Input } from '../../components/ui/Input';
 import { uid } from '../../utils/id';
-import type { CallType, Workflow } from '../../types';
+import type { CallType, CallTypeSubVersion, Workflow } from '../../types';
 
 // Merged Call Types + Workflows admin. Each call type is paired 1:1 with a
 // workflow that shares its name. The list page is where you create / rename /
@@ -135,11 +135,16 @@ export function AdminWorkflowPage() {
               setCallTypes(callTypes.map((c) => (c.id === ct.id ? { ...c, ...p } : c)));
             }
             function addSv() {
-              patchCt({ subVersions: [...ct.subVersions, { id: uid('sv'), name: 'New sub-version' }] });
-            }
-            function updSv(svId: string, name: string) {
               patchCt({
-                subVersions: ct.subVersions.map((s) => (s.id === svId ? { ...s, name } : s)),
+                subVersions: [
+                  ...ct.subVersions,
+                  { id: uid('sv'), name: 'New sub-version', letter: '' },
+                ],
+              });
+            }
+            function updSv(svId: string, p: Partial<CallTypeSubVersion>) {
+              patchCt({
+                subVersions: ct.subVersions.map((s) => (s.id === svId ? { ...s, ...p } : s)),
               });
             }
             function removeSv(svId: string) {
@@ -150,14 +155,20 @@ export function AdminWorkflowPage() {
               <div key={ct.id} className="py-3 space-y-2">
                 <div className="grid grid-cols-[1fr_auto_auto_auto_auto] gap-3 items-center">
                   <Input value={ct.name} onChange={(e) => renamePair(ct.id, e.target.value)} />
-                  <Input
-                    className="w-16 text-center uppercase"
-                    maxLength={1}
-                    placeholder="A"
-                    title="Code letter"
-                    value={ct.letter}
-                    onChange={(e) => patchCt({ letter: e.target.value.toUpperCase().slice(0, 1) })}
-                  />
+                  {ct.subVersions.length === 0 ? (
+                    <Input
+                      className="w-16 text-center uppercase"
+                      maxLength={1}
+                      placeholder="A"
+                      title="Code letter"
+                      value={ct.letter}
+                      onChange={(e) => patchCt({ letter: e.target.value.toUpperCase().slice(0, 1) })}
+                    />
+                  ) : (
+                    <span className="w-16 text-center text-xs text-slate-400" title="Letters are on the sub-versions">
+                      ↓ letters
+                    </span>
+                  )}
                   <div className="text-xs text-slate-500">
                     {u && (u.serviceTemplates.length + u.taCards.length + u.notifReqs > 0)
                       ? `${u.serviceTemplates.length} svc · ${u.taCards.length} TA · ${u.notifReqs} notif`
@@ -184,7 +195,15 @@ export function AdminWorkflowPage() {
                   </div>
                   {ct.subVersions.map((sv) => (
                     <div key={sv.id} className="flex gap-2 items-center">
-                      <Input value={sv.name} onChange={(e) => updSv(sv.id, e.target.value)} />
+                      <Input value={sv.name} onChange={(e) => updSv(sv.id, { name: e.target.value })} />
+                      <Input
+                        className="w-16 text-center uppercase"
+                        maxLength={1}
+                        placeholder="A"
+                        title="Code letter"
+                        value={sv.letter}
+                        onChange={(e) => updSv(sv.id, { letter: e.target.value.toUpperCase().slice(0, 1) })}
+                      />
                       <Button size="sm" variant="ghost" onClick={() => removeSv(sv.id)}>Remove</Button>
                     </div>
                   ))}

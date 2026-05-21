@@ -25,8 +25,8 @@ interface Props {
   ) => ExceptionStep[];
 }
 
-// Quick Process Card lookup on the result page. Pick a facility + service +
-// sub-version, or type a Process Card code (NN-L-NNN) to jump straight there.
+// Process Card lookup on the result page. Locked to the case's call type —
+// you can only look up cards for this call type's sub-versions.
 export function ProcessCardLookup({ callTypeId, getActiveCardQs, getActiveCardSteps }: Props) {
   const facilities = useAppStore((s) => s.facilities);
   const specialty = useAppStore((s) => s.specialty);
@@ -34,13 +34,15 @@ export function ProcessCardLookup({ callTypeId, getActiveCardQs, getActiveCardSt
   const has = useAppStore((s) => s.healthAuthorities);
   const haName = (id: string) => has.find((h) => h.id === id)?.name ?? '';
 
+  const callType = callTypes.find((c) => c.id === callTypeId);
+  const subVersions = callType?.subVersions ?? [];
+
   const [facId, setFacId] = useState('');
   const [svcId, setSvcId] = useState('');
-  // Defaults to the case's call type; a code search can switch it.
-  const [ctId, setCtId] = useState(callTypeId);
-  const [subVersionId, setSubVersionId] = useState<'hloc' | 'llto'>('hloc');
+  const [subVersionId, setSubVersionId] = useState(subVersions[0]?.id ?? 'default');
   const [answers, setAnswers] = useState<Record<string, string>>({});
   const [codeInput, setCodeInput] = useState('');
+  const [codeError, setCodeError] = useState('');
 
   const facilityOptions = facilities.map((f) => ({
     value: f.id,
@@ -51,43 +53,57 @@ export function ProcessCardLookup({ callTypeId, getActiveCardQs, getActiveCardSt
   function clear() {
     setFacId('');
     setSvcId('');
-    setCtId(callTypeId);
-    setSubVersionId('hloc');
+    setSubVersionId(subVersions[0]?.id ?? 'default');
     setAnswers({});
     setCodeInput('');
+    setCodeError('');
   }
 
-  // Resolve a typed code (NN-L-NNN) into a facility / service / call type.
+  // Resolve a typed code (NN-L-NNN) — but only within THIS call type.
   function applyCode(raw: string) {
     setCodeInput(raw);
+    setCodeError('');
     const parsed = parseProcessCardCode(raw);
     if (!parsed) return;
+    // The letter must belong to this call type (one of its sub-versions, or
+    // the call type itself when it has none).
+    let resolvedSv: string | null = null;
+    if (subVersions.length === 0) {
+      if ((callType?.letter || '').toUpperCase() === parsed.letter) resolvedSv = 'default';
+    } else {
+      const sv = subVersions.find((s) => (s.letter || '').toUpperCase() === parsed.letter);
+      if (sv) resolvedSv = sv.id;
+    }
+    if (!resolvedSv) {
+      setCodeError(`Code ${raw} is not part of this call type.`);
+      return;
+    }
     const fac = facilities.find((f) => f.code === parsed.facilityCode);
     const svc = specialty.find((s) => s.number === parsed.serviceNumber);
-    const ct = callTypes.find((c) => c.letter.toUpperCase() === parsed.letter);
     if (fac) setFacId(fac.id);
     if (svc) setSvcId(svc.id);
-    if (ct) setCtId(ct.id);
+    setSubVersionId(resolvedSv);
     if (fac || svc) setAnswers({});
   }
 
   const ready = !!facId && !!svcId;
-  const qs = ready ? getActiveCardQs(svcId, ctId, subVersionId, facId) : [];
-  const steps = ready ? getActiveCardSteps(svcId, ctId, subVersionId, facId, answers) : [];
+  const qs = ready ? getActiveCardQs(svcId, callTypeId, subVersionId, facId) : [];
+  const steps = ready ? getActiveCardSteps(svcId, callTypeId, subVersionId, facId, answers) : [];
 
   const currentCode = useMemo(() => {
     if (!ready) return '';
     return processCardCode(
       specialty.find((s) => s.id === svcId),
-      callTypes.find((c) => c.id === ctId),
+      callType,
+      subVersionId,
       facilities.find((f) => f.id === facId),
     );
-  }, [ready, specialty, callTypes, facilities, svcId, ctId, facId]);
+  }, [ready, specialty, callType, subVersionId, facilities, svcId, facId]);
 
   return (
     <Card
       title="Process card lookup"
-      description="Pick a facility / service, or type a Process Card code."
+      description={`Cards for the ${callType?.name ?? 'current'} call type.`}
       actions={
         <Button size="sm" variant="ghost" onClick={clear}>
           Clear
@@ -101,8 +117,10 @@ export function ProcessCardLookup({ callTypeId, getActiveCardQs, getActiveCardSt
           value={codeInput}
           onChange={(e) => applyCode(e.target.value)}
         />
+        {codeError && <div className="text-xs text-amber-700">{codeError}</div>}
         <Combobox
           label="Facility"
+          numbered
           options={facilityOptions}
           value={facId}
           onChange={(v) => {
@@ -124,25 +142,23 @@ export function ProcessCardLookup({ callTypeId, getActiveCardQs, getActiveCardSt
             <option key={s.id} value={s.id}>{s.name}</option>
           ))}
         </Select>
-        <div>
-          <label className="text-xs font-medium text-slate-600 mb-1 block">Sub-version</label>
-          <div className="flex gap-2">
-            <Button
-              size="sm"
-              variant={subVersionId === 'hloc' ? 'primary' : 'secondary'}
-              onClick={() => setSubVersionId('hloc')}
-            >
-              HLOC
-            </Button>
-            <Button
-              size="sm"
-              variant={subVersionId === 'llto' ? 'primary' : 'secondary'}
-              onClick={() => setSubVersionId('llto')}
-            >
-              LLTO
-            </Button>
+        {subVersions.length > 0 && (
+          <div>
+            <label className="text-xs font-medium text-slate-600 mb-1 block">Sub-version</label>
+            <div className="flex flex-wrap gap-2">
+              {subVersions.map((sv) => (
+                <Button
+                  key={sv.id}
+                  size="sm"
+                  variant={subVersionId === sv.id ? 'primary' : 'secondary'}
+                  onClick={() => setSubVersionId(sv.id)}
+                >
+                  {sv.name}
+                </Button>
+              ))}
+            </div>
           </div>
-        </div>
+        )}
       </div>
 
       {!ready ? (

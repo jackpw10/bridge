@@ -224,50 +224,14 @@ async function diffSyncList<R extends { id: string }>(
 }
 
 // =========================================================================
-// MIGRATION v5: collapse High Acuity sub-versions back down to LLTO/HLOC
-// (and Repate back to a single 'default') because the PTN dimension now
-// only branches generic process steps, not service templates. Service
-// template content is wiped (sub-version IDs changed); workflow process
-// steps and sub-version rules are reset for admins to re-configure.
-// Detection key: whether High Acuity still has `llto_std`.
+// NOTE: A migration v5 used to live here. It was a destructive one-time
+// transition (delete call_types, wipe service templates, delete card
+// overrides, reset workflow rules). It is intentionally removed: no current
+// data needs it, and keeping destructive auto-operations around risks
+// silently wiping the user's configuration. Any future schema transition
+// must be a manual SQL script the user runs deliberately — never an
+// automatic load-time wipe.
 // =========================================================================
-async function migrateV5() {
-  const { data: ctRows } = await supabase.from('call_types').select('id, sub_versions');
-  const haRow = (ctRows ?? []).find((r) => r.id === 'ct_high_acuity') as
-    | { id: string; sub_versions: unknown }
-    | undefined;
-  const haSubVersions = (haRow?.sub_versions as Array<{ id: string }>) ?? [];
-  // Skip if HA has already been collapsed (no llto_std present).
-  if (!haSubVersions.some((s) => s.id === 'llto_std')) return;
-
-  // 1) Replace call_types with the new (collapsed) defaults.
-  await supabase.from('call_types').delete().neq('id', '__none__');
-  await supabase.from('call_types').insert(defaultCallTypes.map(callTypeToRow));
-
-  // 2) Wipe service template content (sub-version IDs changed: llto_std → llto, etc.).
-  const { data: svcs } = await supabase.from('specialty_services').select('id, transport_advisor');
-  for (const s of (svcs ?? []) as Array<{ id: string; transport_advisor: unknown }>) {
-    const ta = (s.transport_advisor as { enabled?: boolean; cards?: Array<Record<string, unknown>> } | null) ?? null;
-    await supabase
-      .from('specialty_services')
-      .update({ templates: {}, transport_advisor: ta ?? { enabled: false, cards: [] } })
-      .eq('id', s.id);
-  }
-
-  // 3) Wipe card overrides (sub-version IDs changed).
-  await supabase.from('card_overrides').delete().neq('id', '__none__');
-
-  // 4) Reset workflows' sub_version_rules and process_steps to empty —
-  // admins re-wire them. Post-triage content is preserved but PTN flags
-  // must be re-set in the admin UI.
-  const { data: wfs } = await supabase.from('workflows').select('id');
-  for (const w of (wfs ?? []) as Array<{ id: string }>) {
-    await supabase
-      .from('workflows')
-      .update({ sub_version_rules: {}, process_steps: {} })
-      .eq('id', w.id);
-  }
-}
 
 // =========================================================================
 // CODE BACKFILL: assign the new identifier fields (call-type letter,
@@ -277,24 +241,43 @@ async function migrateV5() {
 // yet applied) doesn't break the whole load.
 // =========================================================================
 async function backfillCodes() {
-  // ---- Call type letters (A, B, C…) ----
+  // ---- Code letters: one per sub-version, or one on the call type when it
+  //      has no sub-versions. All letters are globally unique. ----
   const { data: cts, error: ctErr } = await supabase
     .from('call_types')
-    .select('id, name, letter');
+    .select('id, name, letter, sub_versions');
   if (ctErr) throw ctErr;
-  const ctRows = (cts ?? []) as Array<{ id: string; name: string; letter: string | null }>;
-  const ctMissing = ctRows.filter((r) => !r.letter);
-  if (ctMissing.length) {
-    const used = new Set(
-      ctRows.map((r) => (r.letter ?? '').toUpperCase()).filter(Boolean)
-    );
-    let code = 65; // 'A'
-    for (const r of [...ctMissing].sort((a, b) => a.name.localeCompare(b.name))) {
-      while (used.has(String.fromCharCode(code))) code++;
-      const letter = String.fromCharCode(code);
-      used.add(letter);
-      code++;
-      await supabase.from('call_types').update({ letter }).eq('id', r.id);
+  type SubV = { id: string; name: string; letter?: string };
+  const ctRows = (cts ?? []) as Array<{
+    id: string;
+    name: string;
+    letter: string | null;
+    sub_versions: SubV[] | null;
+  }>;
+  const usedLetters = new Set<string>();
+  for (const r of ctRows) {
+    if (r.letter) usedLetters.add(r.letter.toUpperCase());
+    for (const sv of r.sub_versions ?? []) {
+      if (sv.letter) usedLetters.add(sv.letter.toUpperCase());
+    }
+  }
+  let charCode = 65; // 'A'
+  const nextLetter = () => {
+    while (usedLetters.has(String.fromCharCode(charCode))) charCode++;
+    const l = String.fromCharCode(charCode);
+    usedLetters.add(l);
+    charCode++;
+    return l;
+  };
+  for (const r of [...ctRows].sort((a, b) => a.name.localeCompare(b.name))) {
+    const subs = r.sub_versions ?? [];
+    if (subs.length === 0) {
+      if (!r.letter) {
+        await supabase.from('call_types').update({ letter: nextLetter() }).eq('id', r.id);
+      }
+    } else if (subs.some((sv) => !sv.letter)) {
+      const next = subs.map((sv) => (sv.letter ? sv : { ...sv, letter: nextLetter() }));
+      await supabase.from('call_types').update({ sub_versions: next }).eq('id', r.id);
     }
   }
 
@@ -385,12 +368,14 @@ async function seedIfEmpty() {
     }
     if ((count ?? 0) === 0 && s.defaults.length > 0) {
       const rows = s.defaults.map((d, i) => s.toRow(d, i));
-      // upsert (not insert) so a concurrent seed — or a stale count — can't
-      // collide on the primary key. Seeding only runs when the table reads
-      // as empty, so re-applying default values here is harmless.
+      // INSERT, never upsert. If the count misreads as 0 for a table that
+      // actually has rows (transient RLS / timing), an upsert would silently
+      // OVERWRITE the user's real data with defaults. insert just errors on
+      // the duplicate key — loud and non-destructive. The loadAllData dedup
+      // guard prevents the concurrent-seed race that motivated upsert.
       const { data, error: insErr } = await supabase
         .from(s.table)
-        .upsert(rows)
+        .insert(rows)
         .select('id');
       if (insErr) {
         reportWriteFailure(s.table, 'upsert', `seed insert failed: ${insErr.message}`);
@@ -421,7 +406,6 @@ export function loadAllData(): Promise<void> {
 
 async function doLoadAllData(): Promise<void> {
   try {
-    await migrateV5();
     await seedIfEmpty();
     // Backfill new identifier fields. Isolated so a not-yet-applied schema
     // (missing column) degrades gracefully instead of failing the load.
