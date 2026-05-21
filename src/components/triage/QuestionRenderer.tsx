@@ -161,6 +161,9 @@ export function QuestionRenderer({ question, answers, setAnswer, callTypeId, onA
           onChange={(v) => {
             const lbl = facilities.find((f) => f.id === v)?.name ?? '';
             setAnswer(question.id, lbl || freeText, { facid: v, freetext: v ? '' : freeText });
+            // Picking a facility from the list auto-advances; typing free text
+            // (handled by the Input below) does not.
+            if (v && onAdvance) onAdvance();
           }}
           placeholder="Search facilities…"
         />
