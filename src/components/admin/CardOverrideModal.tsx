@@ -3,14 +3,13 @@ import { useAppStore } from '../../store/appStore';
 import type {
   CardOverride,
   CardOverridePart,
-  ExceptionStep,
+  ProcessCardStep,
   ServiceTemplate,
   SpecialtyService,
-  TemplateQuestion,
 } from '../../types';
 import { Modal } from '../ui/Modal';
 import { Button } from '../ui/Button';
-import { Input, Select, Textarea } from '../ui/Input';
+import { Textarea } from '../ui/Input';
 import { Badge } from '../ui/Badge';
 import { Toggle } from '../ui/Toggle';
 import { DragList } from '../ui/DragList';
@@ -29,15 +28,13 @@ interface Props {
 function emptyPart(): CardOverridePart {
   return {
     deactivated: [],
-    addedQuestions: [],
     addedSteps: [],
-    qOrder: [],
     sOrder: [],
   };
 }
 
 function emptyTpl(): ServiceTemplate {
-  return { preQuestions: [], exceptionSteps: [] };
+  return { steps: [] };
 }
 
 export function CardOverrideModal({
@@ -53,7 +50,6 @@ export function CardOverrideModal({
   const facility = facilities.find((f) => f.id === facilityId);
 
   const [tabCtId, setTabCtId] = useState<string>('');
-  const [tabSvId, setTabSvId] = useState<string>('default');
   const [draft, setDraft] = useState<CardOverride>(
     override ?? {
       id: uid('ov'),
@@ -67,44 +63,20 @@ export function CardOverrideModal({
     if (!tabCtId && callTypes.length > 0) setTabCtId(callTypes[0].id);
   }, [callTypes, tabCtId]);
 
-  useEffect(() => {
-    const ct = callTypes.find((c) => c.id === tabCtId);
-    setTabSvId(ct && ct.subVersions.length > 0 ? ct.subVersions[0].id : 'default');
-  }, [tabCtId, callTypes]);
-
   const activeCallType = callTypes.find((c) => c.id === tabCtId);
-  const partKey = `${tabCtId}:${tabSvId}`;
-  const part: CardOverridePart = draft.parts[partKey] ?? emptyPart();
-  const tpl: ServiceTemplate =
-    service.templates[tabCtId]?.[tabSvId] ?? emptyTpl();
-  const templateQs = tpl.preQuestions;
-  const templateSteps = tpl.exceptionSteps;
+  const part: CardOverridePart = draft.parts[tabCtId] ?? emptyPart();
+  const tpl: ServiceTemplate = service.templates[tabCtId] ?? emptyTpl();
+  const templateSteps = tpl.steps;
 
   function patchPart(p: Partial<CardOverridePart>) {
     setDraft((d) => ({
       ...d,
-      parts: { ...d.parts, [partKey]: { ...part, ...p } },
+      parts: { ...d.parts, [tabCtId]: { ...part, ...p } },
     }));
   }
 
-  const orderedQs: Array<TemplateQuestion & { isCustom: boolean }> = useMemo(() => {
-    const all: Array<TemplateQuestion & { isCustom: boolean }> = [
-      ...templateQs.map((q) => ({ ...q, isCustom: false })),
-      ...part.addedQuestions.map((q) => ({ ...q, isCustom: true })),
-    ];
-    if (!part.qOrder.length) return all;
-    const map = new Map(all.map((q) => [q.id, q] as const));
-    const out: typeof all = [];
-    for (const id of part.qOrder) {
-      const q = map.get(id);
-      if (q) { out.push(q); map.delete(id); }
-    }
-    for (const q of map.values()) out.push(q);
-    return out;
-  }, [templateQs, part.addedQuestions, part.qOrder]);
-
-  const orderedSteps: Array<ExceptionStep & { isCustom: boolean }> = useMemo(() => {
-    const all: Array<ExceptionStep & { isCustom: boolean }> = [
+  const orderedSteps: Array<ProcessCardStep & { isCustom: boolean }> = useMemo(() => {
+    const all: Array<ProcessCardStep & { isCustom: boolean }> = [
       ...templateSteps.map((s) => ({ ...s, isCustom: false })),
       ...part.addedSteps.map((s) => ({ ...s, isCustom: true })),
     ];
@@ -126,25 +98,7 @@ export function CardOverrideModal({
     patchPart({ deactivated: next });
   }
 
-  function updateAddedQ(qid: string, patch: Partial<TemplateQuestion>) {
-    patchPart({
-      addedQuestions: part.addedQuestions.map((q) =>
-        q.id === qid ? { ...q, ...patch } : q
-      ),
-    });
-  }
-  function removeAddedQ(qid: string) {
-    patchPart({
-      addedQuestions: part.addedQuestions.filter((q) => q.id !== qid),
-      qOrder: part.qOrder.filter((id) => id !== qid),
-    });
-  }
-  function addCustomQ() {
-    const q: TemplateQuestion = { id: uid('cq'), type: 'yesno', text: 'New question' };
-    patchPart({ addedQuestions: [...part.addedQuestions, q] });
-  }
-
-  function updateAddedS(sid: string, patch: Partial<ExceptionStep>) {
+  function updateAddedS(sid: string, patch: Partial<ProcessCardStep>) {
     patchPart({
       addedSteps: part.addedSteps.map((s) => (s.id === sid ? { ...s, ...patch } : s)),
     });
@@ -156,18 +110,13 @@ export function CardOverrideModal({
     });
   }
   function addCustomS() {
-    const s: ExceptionStep = { id: uid('cs'), text: 'New step' };
+    const s: ProcessCardStep = { id: uid('cs'), text: 'New step' };
     patchPart({ addedSteps: [...part.addedSteps, s] });
   }
 
-  function reorderQs(next: Array<{ id: string }>) {
-    patchPart({ qOrder: next.map((n) => n.id) });
-  }
   function reorderSteps(next: Array<{ id: string }>) {
     patchPart({ sOrder: next.map((n) => n.id) });
   }
-
-  const subTabs = activeCallType?.subVersions ?? [];
 
   return (
     <Modal
@@ -202,151 +151,59 @@ export function CardOverrideModal({
               </button>
             ))}
           </div>
-          <div className="mb-2">
+          <div className="mb-4">
             <Badge tone="blue">
-              Code: {processCardCode(service, activeCallType, tabSvId, facility)}
+              Code: {processCardCode(service, activeCallType, facility)}
             </Badge>
           </div>
-          {subTabs.length > 0 && (
-            <div className="flex flex-wrap gap-2 mb-4">
-              {subTabs.map((sv) => (
-                <button
-                  key={sv.id}
-                  type="button"
-                  onClick={() => setTabSvId(sv.id)}
-                  className={`px-2.5 py-1 text-xs rounded ${
-                    tabSvId === sv.id ? 'bg-brand-600 text-white' : 'bg-slate-100 text-slate-700'
-                  }`}
-                >
-                  {sv.name}
-                </button>
-              ))}
-            </div>
-          )}
 
-          <div className="grid md:grid-cols-2 gap-6">
-            <div>
-              <div className="flex items-center justify-between mb-2">
-                <h4 className="font-semibold text-slate-700">Questions</h4>
-                <Button size="sm" variant="secondary" onClick={addCustomQ}>+ Add custom</Button>
-              </div>
-              <DragList
-                items={orderedQs}
-                onReorder={reorderQs}
-                renderItem={(q, handle) => {
-                  const deactivated = part.deactivated.includes(q.id);
-                  return (
-                    <div className={`border rounded-md p-3 ${q.isCustom ? 'bg-slate-50 border-slate-200' : 'bg-blue-50 border-blue-200'} ${deactivated ? 'opacity-50' : ''}`}>
-                      <div className="flex items-start gap-2">
-                        {handle}
-                        <div className="flex-1 space-y-2">
-                          <div className="flex items-center gap-2">
-                            <Badge tone={q.isCustom ? 'slate' : 'blue'}>
-                              {q.isCustom ? 'CUSTOM' : 'TEMPLATE'}
-                            </Badge>
-                            {!q.isCustom && (
-                              <Toggle
-                                checked={!deactivated}
-                                onChange={() => toggleDeactivated(q.id)}
-                                label={deactivated ? 'Inactive' : 'Active'}
-                              />
-                            )}
-                          </div>
-                          {q.isCustom ? (
-                            <>
-                              <Input value={q.text} onChange={(e) => updateAddedQ(q.id, { text: e.target.value })} />
-                              <div className="grid grid-cols-2 gap-2">
-                                <Select value={q.type} onChange={(e) => updateAddedQ(q.id, { type: e.target.value as TemplateQuestion['type'] })}>
-                                  <option value="yesno">Yes / No</option>
-                                  <option value="dropdown">Dropdown</option>
-                                </Select>
-                                {q.type === 'dropdown' && (
-                                  <Input
-                                    placeholder="opt1|opt2|opt3"
-                                    value={(q.options ?? []).join('|')}
-                                    onChange={(e) =>
-                                      updateAddedQ(q.id, {
-                                        options: e.target.value.split('|').map((s) => s.trim()).filter(Boolean),
-                                      })
-                                    }
-                                  />
-                                )}
-                              </div>
-                              <Button size="sm" variant="ghost" onClick={() => removeAddedQ(q.id)}>Delete custom question</Button>
-                            </>
-                          ) : (
-                            <div className="text-sm text-slate-700">{q.text}</div>
+          <div>
+            <div className="flex items-center justify-between mb-2">
+              <h4 className="font-semibold text-slate-700">Steps</h4>
+              <Button size="sm" variant="secondary" onClick={addCustomS}>+ Add custom step</Button>
+            </div>
+            <DragList
+              items={orderedSteps}
+              onReorder={reorderSteps}
+              renderItem={(s, handle) => {
+                const deactivated = part.deactivated.includes(s.id);
+                return (
+                  <div className={`border rounded-md p-3 ${s.isCustom ? 'bg-slate-50 border-slate-200' : 'bg-blue-50 border-blue-200'} ${deactivated ? 'opacity-50' : ''}`}>
+                    <div className="flex items-start gap-2">
+                      {handle}
+                      <div className="flex-1 space-y-2">
+                        <div className="flex items-center gap-2">
+                          <Badge tone={s.isCustom ? 'slate' : 'blue'}>
+                            {s.isCustom ? 'CUSTOM' : 'TEMPLATE'}
+                          </Badge>
+                          {!s.isCustom && (
+                            <Toggle
+                              checked={!deactivated}
+                              onChange={() => toggleDeactivated(s.id)}
+                              label={deactivated ? 'Inactive' : 'Active'}
+                            />
                           )}
                         </div>
+                        {s.isCustom ? (
+                          <>
+                            <Textarea value={s.text} onChange={(e) => updateAddedS(s.id, { text: e.target.value })} />
+                            <Button size="sm" variant="ghost" onClick={() => removeAddedS(s.id)}>Delete custom step</Button>
+                          </>
+                        ) : (
+                          <div className="text-sm text-slate-700">{s.text}</div>
+                        )}
                       </div>
                     </div>
-                  );
-                }}
-              />
-            </div>
-
-            <div>
-              <div className="flex items-center justify-between mb-2">
-                <h4 className="font-semibold text-slate-700">Steps</h4>
-                <Button size="sm" variant="secondary" onClick={addCustomS}>+ Add custom</Button>
+                  </div>
+                );
+              }}
+            />
+            {orderedSteps.length === 0 && (
+              <div className="text-xs text-slate-400 mt-2">
+                No steps for this call type. Add steps to the base template in{' '}
+                <em>Admin → Specialty Services</em>, or add custom steps here.
               </div>
-              <DragList
-                items={orderedSteps}
-                onReorder={reorderSteps}
-                renderItem={(s, handle) => {
-                  const deactivated = part.deactivated.includes(s.id);
-                  return (
-                    <div className={`border rounded-md p-3 ${s.isCustom ? 'bg-slate-50 border-slate-200' : 'bg-blue-50 border-blue-200'} ${deactivated ? 'opacity-50' : ''}`}>
-                      <div className="flex items-start gap-2">
-                        {handle}
-                        <div className="flex-1 space-y-2">
-                          <div className="flex items-center gap-2">
-                            <Badge tone={s.isCustom ? 'slate' : 'blue'}>
-                              {s.isCustom ? 'CUSTOM' : 'TEMPLATE'}
-                            </Badge>
-                            {!s.isCustom && (
-                              <Toggle
-                                checked={!deactivated}
-                                onChange={() => toggleDeactivated(s.id)}
-                                label={deactivated ? 'Inactive' : 'Active'}
-                              />
-                            )}
-                          </div>
-                          {s.isCustom ? (
-                            <>
-                              <Textarea value={s.text} onChange={(e) => updateAddedS(s.id, { text: e.target.value })} />
-                              <div className="grid grid-cols-2 gap-2">
-                                <Select value={s.condQid ?? ''} onChange={(e) => updateAddedS(s.id, { condQid: e.target.value || undefined })}>
-                                  <option value="">— unconditional —</option>
-                                  {orderedQs.map((q) => (
-                                    <option key={q.id} value={q.id}>{q.text}</option>
-                                  ))}
-                                </Select>
-                                <Input
-                                  placeholder="when answer = …"
-                                  value={s.condVal ?? ''}
-                                  onChange={(e) => updateAddedS(s.id, { condVal: e.target.value || undefined })}
-                                />
-                              </div>
-                              <Button size="sm" variant="ghost" onClick={() => removeAddedS(s.id)}>Delete custom step</Button>
-                            </>
-                          ) : (
-                            <div className="text-sm text-slate-700">
-                              <div>{s.text}</div>
-                              {s.condQid && (
-                                <div className="text-xs text-slate-500 mt-1">
-                                  when {s.condQid} = "{s.condVal}"
-                                </div>
-                              )}
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  );
-                }}
-              />
-            </div>
+            )}
           </div>
         </>
       )}

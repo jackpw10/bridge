@@ -4,40 +4,19 @@ import { useTriageStore } from '../store/triageStore';
 import type {
   AcQueueItem,
   CardOverridePart,
-  Condition,
-  ExceptionStep,
   Facility,
+  ProcessCardStep,
   ProcessStep,
   SpecialtyService,
-  TemplateQuestion,
   TriageContext,
   Workflow,
   WorkflowQuestion,
 } from '../types';
 
-// Stable empty references so reading from a missing active case doesn't
+// Stable empty reference so reading from a missing active case doesn't
 // produce a new object each render (which would thrash memo dependencies).
 const EMPTY_STR_REC: Record<string, string> = {};
 const EMPTY_BOOL_REC: Record<string, boolean> = {};
-
-function evalConditions(
-  conds: Condition[],
-  answers: Record<string, string>
-): boolean {
-  if (conds.length === 0) return true;
-  for (const c of conds) {
-    const a = (answers[c.qid] ?? '').toLowerCase();
-    const want = (c.equals ?? '').toLowerCase();
-    if (a !== want) return false;
-  }
-  return true;
-}
-
-// Legacy step-shaped (exception steps in service templates) still use single condQid/condVal.
-function resolveExceptionStepCondition(s: ExceptionStep): Condition[] {
-  if (s.condQid && s.condVal !== undefined) return [{ qid: s.condQid, equals: s.condVal }];
-  return [];
-}
 
 function isQuestionVisible(
   q: WorkflowQuestion,
@@ -116,53 +95,30 @@ function applyOrder<T extends { id: string }>(all: T[], order: string[]): T[] {
   return out;
 }
 
-function getActiveCardQs(
-  service: SpecialtyService,
-  override: CardOverridePart | null,
-  callTypeId: string,
-  subVersionId: string
-): TemplateQuestion[] {
-  const byCt = service.templates[callTypeId] ?? {};
-  const tpl = byCt[subVersionId];
-  const baseQs = tpl?.preQuestions ?? [];
-  const base = baseQs.filter((q) => !override?.deactivated.includes(q.id));
-  const all = [...base, ...(override?.addedQuestions ?? [])];
-  return applyOrder(all, override?.qOrder ?? []);
-}
-
+// Build the effective Process Card step list for a service + call type,
+// applying any per-facility CardOverridePart on top.
 function getActiveCardSteps(
   service: SpecialtyService,
   override: CardOverridePart | null,
   callTypeId: string,
-  subVersionId: string,
-  preAnswers: Record<string, string>
-): ExceptionStep[] {
-  const byCt = service.templates[callTypeId] ?? {};
-  const tpl = byCt[subVersionId];
-  const baseSteps = tpl?.exceptionSteps ?? [];
+): ProcessCardStep[] {
+  const tpl = service.templates[callTypeId];
+  const baseSteps = tpl?.steps ?? [];
   const base = baseSteps.filter((s) => !override?.deactivated.includes(s.id));
   const all = [...base, ...(override?.addedSteps ?? [])];
-  const ordered = applyOrder(all, override?.sOrder ?? []);
-  return ordered.filter((s) => evalConditions(resolveExceptionStepCondition(s), preAnswers));
+  return applyOrder(all, override?.sOrder ?? []);
 }
 
 export interface UseTriageResult {
   activeWorkflow: Workflow | null;
   callTypeId: string;
   callTypeName: string;
-  subVersionId: string | null;  // null if no sub-version's rules match yet
-  subVersionName: string;       // empty if not resolved
-  hasPtnQuestion: boolean;      // workflow's post-triage has a PTN-flagged question
-  ptnVariant: 'std' | 'outside' | null; // null if no PTN question or unanswered
-  processStepsKey: string | null; // composite key used to look up process steps
   hasReferralQuestion: boolean;
 
   answers: Record<string, string>;
   currentIndex: number;
   taShown: Record<string, boolean>;
-  phase: 'workflow' | 'pre-questions' | 'result';
-  acStates: Record<string, string>;
-  postTriageAnswers: Record<string, string>;
+  phase: 'workflow' | 'result';
   notifsSent: boolean;
   notes: string;
 
@@ -181,30 +137,19 @@ export interface UseTriageResult {
   goNext: () => void;
   goToIndex: (i: number) => void;
   markTaShown: (key: string) => void;
-  goToPreQuestions: () => void;
   goToResult: () => void;
   goToWorkflow: () => void;
   // Closes the active case (cancel / complete) and returns the route to
   // navigate to next: another open case's page, or /triage if none remain.
   closeActiveCase: () => string;
-  setAcAnswer: (key: string, value: string) => void;
-  setPostTriageAnswer: (key: string, value: string) => void;
   markNotifsSent: () => void;
   setNotes: (s: string) => void;
 
-  getActiveCardQs: (
-    svcId: string,
-    callTypeId: string,
-    subVersionId: string | null,
-    facId: string
-  ) => TemplateQuestion[];
   getActiveCardSteps: (
     svcId: string,
     callTypeId: string,
-    subVersionId: string | null,
     facId: string,
-    preAnswers: Record<string, string>
-  ) => ExceptionStep[];
+  ) => ProcessCardStep[];
 }
 
 export function useTriage(): UseTriageResult {
@@ -226,9 +171,7 @@ export function useTriage(): UseTriageResult {
   const answers = activeCase?.answers ?? EMPTY_STR_REC;
   const currentIndex = activeCase?.currentIndex ?? 0;
   const taShown = activeCase?.taShown ?? EMPTY_BOOL_REC;
-  const phase: 'workflow' | 'pre-questions' | 'result' = activeCase?.phase ?? 'workflow';
-  const acStates = activeCase?.acStates ?? EMPTY_STR_REC;
-  const postTriageAnswers = activeCase?.postTriageAnswers ?? EMPTY_STR_REC;
+  const phase: 'workflow' | 'result' = activeCase?.phase ?? 'workflow';
   const notifsSent = activeCase?.notifsSent ?? false;
   const notes = activeCase?.notes ?? '';
 
@@ -239,8 +182,6 @@ export function useTriage(): UseTriageResult {
   const markTaShown = useTriageStore((s) => s.markTaShown);
   const setPhase = useTriageStore((s) => s.setPhase);
   const closeCase = useTriageStore((s) => s.closeCase);
-  const setAcAnswer = useTriageStore((s) => s.setAcAnswer);
-  const setPostTriageAnswer = useTriageStore((s) => s.setPostTriageAnswer);
   const markNotifsSent = useTriageStore((s) => s.markNotifsSent);
   const setNotes = useTriageStore((s) => s.setNotes);
 
@@ -276,24 +217,6 @@ export function useTriage(): UseTriageResult {
     [visibleQuestions, answers]
   );
 
-  // ----- Sub-version resolution: walk the call type's sub-versions in order,
-  // first whose rules ALL match wins. Conditions reference workflow + post-triage answers.
-  const subVersionId: string | null = useMemo(() => {
-    if (!activeWorkflow) return null;
-    if (!callType || callType.subVersions.length === 0) return 'default';
-    const merged: Record<string, string> = { ...answers, ...postTriageAnswers };
-    for (const sv of callType.subVersions) {
-      const rules = activeWorkflow.subVersionRules[sv.id] ?? [];
-      if (evalConditions(rules, merged)) return sv.id;
-    }
-    return null;
-  }, [activeWorkflow, callType, answers, postTriageAnswers]);
-
-  const subVersionName = useMemo(() => {
-    if (!callType || !subVersionId) return '';
-    return callType.subVersions.find((sv) => sv.id === subVersionId)?.name ?? '';
-  }, [callType, subVersionId]);
-
   const acQueue: AcQueueItem[] = useMemo(() => {
     if (!context.destFacId || context.svcIds.length === 0) return [];
     return context.svcIds.map((svcId) => ({
@@ -305,68 +228,20 @@ export function useTriage(): UseTriageResult {
   const destFacility = facilities.find((f) => f.id === context.destFacId) ?? null;
   const sendingFacility = facilities.find((f) => f.id === context.facId) ?? null;
 
-  // ----- PTN variant (orthogonal axis: only affects generic process steps) -----
-  // If the workflow's post-triage has a question flagged `isPtnQuestion`, the
-  // process-step key is `${subVersionId}:${'std'|'outside'}`. Otherwise just
-  // the sub-version id.
-  const ptnQuestion = useMemo(() => {
-    if (!activeWorkflow || activeWorkflow.postTriage.mode !== 'questions') return null;
-    return activeWorkflow.postTriage.questions.find((q) => q.isPtnQuestion) ?? null;
-  }, [activeWorkflow]);
-
-  const ptnVariant: 'std' | 'outside' | null = useMemo(() => {
-    if (!ptnQuestion) return null;
-    const raw = (postTriageAnswers[ptnQuestion.id] ?? '').toLowerCase();
-    if (raw === 'yes') return 'outside';
-    if (raw === 'no') return 'std';
-    return null;
-  }, [ptnQuestion, postTriageAnswers]);
-
-  const processStepsKey: string | null = useMemo(() => {
-    if (!subVersionId) return null;
-    if (!ptnQuestion) return subVersionId;
-    if (!ptnVariant) return null;
-    return `${subVersionId}:${ptnVariant}`;
-  }, [subVersionId, ptnQuestion, ptnVariant]);
-
-  // ----- Process steps for the resolved sub-version (+ PTN variant if applicable) -----
-  const activeProcessSteps = useMemo(() => {
-    if (!activeWorkflow || !processStepsKey) return [];
-    return activeWorkflow.processSteps[processStepsKey] ?? [];
-  }, [activeWorkflow, processStepsKey]);
+  // Action Card = the workflow's flat process steps.
+  const activeProcessSteps = activeWorkflow?.processSteps ?? [];
 
   const hasReferralQuestion = workflowQuestions.some((q) => q.type === 'referral_resolve');
 
-  const goToPreQuestions = useCallback(() => setPhase('pre-questions'), [setPhase]);
   const goToResult = useCallback(() => setPhase('result'), [setPhase]);
   const goToWorkflow = useCallback(() => setPhase('workflow'), [setPhase]);
 
-  const getActiveCardQsWrapped = useCallback(
-    (svcId: string, ctId: string, svId: string | null, facId: string): TemplateQuestion[] => {
-      if (!svId) return [];
-      const svc = specialty.find((s) => s.id === svcId);
-      if (!svc) return [];
-      const ov = overrides.find((o) => o.facilityId === facId && o.svcId === svcId);
-      const partKey = `${ctId}:${svId}`;
-      return getActiveCardQs(svc, ov?.parts[partKey] ?? null, ctId, svId);
-    },
-    [specialty, overrides]
-  );
-
   const getActiveCardStepsWrapped = useCallback(
-    (
-      svcId: string,
-      ctId: string,
-      svId: string | null,
-      facId: string,
-      preAnswers: Record<string, string>
-    ): ExceptionStep[] => {
-      if (!svId) return [];
+    (svcId: string, ctId: string, facId: string): ProcessCardStep[] => {
       const svc = specialty.find((s) => s.id === svcId);
       if (!svc) return [];
       const ov = overrides.find((o) => o.facilityId === facId && o.svcId === svcId);
-      const partKey = `${ctId}:${svId}`;
-      return getActiveCardSteps(svc, ov?.parts[partKey] ?? null, ctId, svId, preAnswers);
+      return getActiveCardSteps(svc, ov?.parts[ctId] ?? null, ctId);
     },
     [specialty, overrides]
   );
@@ -375,18 +250,11 @@ export function useTriage(): UseTriageResult {
     activeWorkflow,
     callTypeId,
     callTypeName,
-    subVersionId,
-    subVersionName,
-    hasPtnQuestion: !!ptnQuestion,
-    ptnVariant,
-    processStepsKey,
     hasReferralQuestion,
     answers,
     currentIndex,
     taShown,
     phase,
-    acStates,
-    postTriageAnswers,
     notifsSent,
     notes,
     caseId: activeCaseId,
@@ -402,15 +270,11 @@ export function useTriage(): UseTriageResult {
     goNext,
     goToIndex,
     markTaShown,
-    goToPreQuestions,
     goToResult,
     goToWorkflow,
     closeActiveCase,
-    setAcAnswer,
-    setPostTriageAnswer,
     markNotifsSent,
     setNotes,
-    getActiveCardQs: getActiveCardQsWrapped,
     getActiveCardSteps: getActiveCardStepsWrapped,
   };
 }

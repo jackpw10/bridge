@@ -62,8 +62,7 @@ $$;
 create table if not exists public.call_types (
   id           text primary key,
   name         text not null,
-  letter       text not null default '',
-  sub_versions jsonb not null default '[]'::jsonb
+  letter       text not null default ''
 );
 
 create table if not exists public.health_authorities (
@@ -93,14 +92,13 @@ create table if not exists public.specialty_services (
 );
 
 -- One row per workflow (paired 1:1 with a call_types row by call_type_id).
+-- process_steps is a JSONB array of {id, text} — the flat Action Card.
 create table if not exists public.workflows (
   id                 text primary key,
   name               text not null,
   call_type_id       text not null default '',
-  sub_version_rules  jsonb not null default '{}'::jsonb,
   questions          jsonb not null default '[]'::jsonb,
-  post_triage        jsonb not null default '{"mode":"none"}'::jsonb,
-  process_steps      jsonb not null default '{}'::jsonb,
+  process_steps      jsonb not null default '[]'::jsonb,
   position           integer not null default 0,
   created_at         timestamptz not null default now()
 );
@@ -137,7 +135,6 @@ create table if not exists public.reference_cards (
 -- already exists. These `add column if not exists` statements bring an older
 -- database up to the current shape. Keep them in sync with the create blocks
 -- above whenever a column is added.
-alter table public.call_types         add column if not exists sub_versions      jsonb not null default '[]'::jsonb;
 alter table public.call_types         add column if not exists letter            text not null default '';
 
 alter table public.facilities         add column if not exists abbreviation      text not null default '';
@@ -149,10 +146,8 @@ alter table public.specialty_services add column if not exists enabled_call_type
 alter table public.specialty_services add column if not exists number                integer not null default 0;
 
 alter table public.workflows          add column if not exists call_type_id      text not null default '';
-alter table public.workflows          add column if not exists sub_version_rules jsonb not null default '{}'::jsonb;
 alter table public.workflows          add column if not exists questions         jsonb not null default '[]'::jsonb;
-alter table public.workflows          add column if not exists post_triage       jsonb not null default '{"mode":"none"}'::jsonb;
-alter table public.workflows          add column if not exists process_steps     jsonb not null default '{}'::jsonb;
+alter table public.workflows          add column if not exists process_steps     jsonb not null default '[]'::jsonb;
 alter table public.workflows          add column if not exists position          integer not null default 0;
 alter table public.workflows          add column if not exists created_at        timestamptz not null default now();
 

@@ -95,11 +95,7 @@ export function ResultPage() {
     const lines: string[] = [];
     lines.push('IFT Triage Result');
     lines.push(`Generated: ${new Date().toLocaleString()}`);
-    if (t.callTypeName) {
-      lines.push(
-        `Call type: ${t.callTypeName}${t.subVersionName ? ` (${t.subVersionName})` : ''}`
-      );
-    }
+    if (t.callTypeName) lines.push(`Call type: ${t.callTypeName}`);
     lines.push('');
     lines.push(`Sending: ${t.sendingFacility?.name ?? '—'}`);
     if (t.destFacility) lines.push(`Receiving: ${t.destFacility.name}`);
@@ -112,39 +108,14 @@ export function ResultPage() {
       lines.push(`  • ${q.text}: ${answer || '—'}`);
     }
 
-    // ---- Post-triage answers ----
-    const pt = t.activeWorkflow?.postTriage;
-    if (pt?.mode === 'questions' && pt.questions.length > 0) {
-      lines.push('');
-      lines.push('Post-triage answers:');
-      for (const q of pt.questions) {
-        lines.push(`  • ${q.text}: ${t.postTriageAnswers[q.id] || '—'}`);
-      }
-    } else if (pt?.mode === 'transport_requirements' && pt.items.length > 0) {
-      lines.push('');
-      lines.push('Transport requirements:');
-      for (const item of pt.items) {
-        const v = t.postTriageAnswers[item.id] ?? '';
-        lines.push(`  • ${item.label}: ${v || '—'}`);
-      }
-    }
-
-    // ---- Per-service action cards ----
+    // ---- Per-service Process Cards ----
     for (const item of t.acQueue) {
       const svc = specialty.find((s) => s.id === item.svcId);
       const dest = facilities.find((f) => f.id === item.destFacId);
       if (!svc) continue;
       lines.push('');
       lines.push(`— ${svc.name}${t.callTypeName ? ` (${t.callTypeName})` : ''} → ${dest?.name ?? '—'} —`);
-      const qs = t.getActiveCardQs(item.svcId, t.callTypeId, t.subVersionId, item.destFacId);
-      const preAnswers: Record<string, string> = {};
-      for (const q of qs) {
-        const key = `${item.svcId}:${q.id}`;
-        const a = t.acStates[key] ?? '';
-        preAnswers[q.id] = a;
-        lines.push(`  • ${q.text}: ${a || '—'}`);
-      }
-      const steps = t.getActiveCardSteps(item.svcId, t.callTypeId, t.subVersionId, item.destFacId, preAnswers);
+      const steps = t.getActiveCardSteps(item.svcId, t.callTypeId, item.destFacId);
       for (const s of steps) {
         lines.push(`  → ${s.text}`);
       }
@@ -215,7 +186,7 @@ export function ResultPage() {
 
   // Transitional: while a tab switch navigates here, the active case may be a
   // non-result case for one render. Render nothing rather than flashing the
-  // sub-version error panel.
+  // error panel.
   if (t.phase !== 'result') return null;
 
   // If the workflow couldn't be loaded (e.g. it was deleted while the case
@@ -241,39 +212,6 @@ export function ResultPage() {
     );
   }
 
-  // If no sub-version resolved, show an error state.
-  if (!t.subVersionId && t.activeWorkflow.callTypeId) {
-    return (
-      <div className="space-y-4">
-        <div>
-          <h1 className="text-2xl font-bold text-slate-800">IFT Triage Result</h1>
-        </div>
-        <Card>
-          <div className="space-y-3">
-            <div className="text-sm text-red-700 bg-red-50 border border-red-200 rounded p-3">
-              <strong>Could not determine the case sub-version.</strong> None of the workflow's
-              sub-version selection rules matched the current answers. Go back and complete
-              any missing triage or post-triage answers, or check the rules in{' '}
-              <strong>Admin → Call Types</strong>.
-            </div>
-            <Button
-              variant="secondary"
-              onClick={() => {
-                // Land on the last question (not past the end) so the user
-                // can correct answers — otherwise the page bounces back.
-                t.goToIndex(Math.max(0, t.visibleQuestions.length - 1));
-                t.goToWorkflow();
-                nav('/triage/run');
-              }}
-            >
-              Fix answers
-            </Button>
-          </div>
-        </Card>
-      </div>
-    );
-  }
-
   return (
     <div className="space-y-4">
       <TriageTabs />
@@ -281,11 +219,7 @@ export function ResultPage() {
         <h1 className="text-2xl font-bold text-slate-800">IFT Triage Result</h1>
         <p className="text-sm text-slate-500 flex flex-wrap items-center gap-2">
           <span>{t.sendingFacility?.name ?? '—'} → {t.destFacility?.name ?? '—'}</span>
-          {t.callTypeName && (
-            <Badge tone="green">
-              {t.callTypeName}{t.subVersionName ? ` (${t.subVersionName})` : ''}
-            </Badge>
-          )}
+          {t.callTypeName && <Badge tone="green">{t.callTypeName}</Badge>}
         </p>
       </div>
 
@@ -308,18 +242,7 @@ export function ResultPage() {
                 const svc = specialty.find((s) => s.id === item.svcId);
                 const dest = facilities.find((f) => f.id === item.destFacId);
                 if (!svc) return null;
-                const qs = t.getActiveCardQs(item.svcId, t.callTypeId, t.subVersionId, item.destFacId);
-                const preAnswers: Record<string, string> = {};
-                for (const q of qs) {
-                  preAnswers[q.id] = t.acStates[`${item.svcId}:${q.id}`] ?? '';
-                }
-                const steps = t.getActiveCardSteps(
-                  item.svcId,
-                  t.callTypeId,
-                  t.subVersionId,
-                  item.destFacId,
-                  preAnswers
-                );
+                const steps = t.getActiveCardSteps(item.svcId, t.callTypeId, item.destFacId);
                 return (
                   <Card
                     key={`${item.svcId}:${item.destFacId}`}
@@ -333,16 +256,6 @@ export function ResultPage() {
                     }
                     description={`Destination: ${dest?.name ?? '—'}`}
                   >
-                    {qs.length > 0 && (
-                      <ul className="text-sm space-y-1 mb-3">
-                        {qs.map((q) => (
-                          <li key={q.id}>
-                            <span className="text-slate-500">{q.text}:</span>{' '}
-                            <span className="font-medium">{preAnswers[q.id] || '—'}</span>
-                          </li>
-                        ))}
-                      </ul>
-                    )}
                     {steps.length > 0 ? (
                       <ol className="list-decimal pl-5 space-y-1 text-sm">
                         {steps.map((s) => (
@@ -350,7 +263,7 @@ export function ResultPage() {
                         ))}
                       </ol>
                     ) : (
-                      <div className="text-xs text-slate-400">No exception steps apply.</div>
+                      <div className="text-xs text-slate-400">No steps configured.</div>
                     )}
                   </Card>
                 );
@@ -434,7 +347,6 @@ export function ResultPage() {
             <ProcessCardLookup
               key={t.callTypeId}
               callTypeId={t.callTypeId}
-              getActiveCardQs={t.getActiveCardQs}
               getActiveCardSteps={t.getActiveCardSteps}
             />
           </div>

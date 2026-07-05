@@ -11,29 +11,13 @@ import type {
 
 // All IDs below are static so cross-references survive a reset.
 
-// One code letter per sub-version (or per call type when it has none).
+// One code letter per call type.
 export const defaultCallTypes: CallType[] = [
-  {
-    id: 'ct_high_acuity',
-    name: 'High Acuity',
-    letter: '',
-    subVersions: [
-      { id: 'llto', name: 'LLTO', letter: 'A' },
-      { id: 'hloc', name: 'HLOC', letter: 'B' },
-    ],
-  },
-  {
-    id: 'ct_advice',
-    name: 'Advice',
-    letter: '',
-    subVersions: [
-      { id: 'llto', name: 'LLTO', letter: 'C' },
-      { id: 'hloc', name: 'HLOC', letter: 'D' },
-    ],
-  },
-  { id: 'ct_repate', name: 'Repate', letter: '', subVersions: [{ id: 'default', name: 'Default', letter: 'E' }] },
-  { id: 'ct_scheduled', name: 'Scheduled', letter: '', subVersions: [{ id: 'default', name: 'Default', letter: 'F' }] },
-  { id: 'ct_discharge', name: 'Discharge', letter: '', subVersions: [{ id: 'default', name: 'Default', letter: 'G' }] },
+  { id: 'ct_high_acuity', name: 'High Acuity', letter: 'A' },
+  { id: 'ct_advice', name: 'Advice', letter: 'B' },
+  { id: 'ct_repate', name: 'Repate', letter: 'C' },
+  { id: 'ct_scheduled', name: 'Scheduled', letter: 'D' },
+  { id: 'ct_discharge', name: 'Discharge', letter: 'E' },
 ];
 
 export const defaultHealthAuthorities: HealthAuthority[] = [
@@ -49,37 +33,11 @@ export const defaultWorkflows: Workflow[] = [
     callTypeId: 'ct_high_acuity',
     questions: [
       { id: 'wfq_ha_sending', type: 'facility', text: 'Sending facility' },
-      {
-        id: 'wfq_ha_triage',
-        type: 'yesno',
-        text: 'Is this a Lateral / Lower Triage Outside (LLTO) transfer? (Yes = LLTO, No = HLOC)',
-      },
       { id: 'wfq_ha_dx', type: 'diagnosis_multi', text: 'Working / suspected diagnoses' },
       { id: 'wfq_ha_svc', type: 'specialty_multi', text: 'Which specialty service(s) are required?' },
       { id: 'wfq_ha_referral', type: 'referral_resolve', text: 'Confirm receiving facility' },
     ],
-    postTriage: {
-      mode: 'questions',
-      showServicePreQuestions: true,
-      questions: [
-        {
-          id: 'ptq_ha_ptn',
-          type: 'yesno',
-          text: 'Was the patient accepted outside of PTN?',
-          isPtnQuestion: true,
-        },
-      ],
-    },
-    subVersionRules: {
-      llto: [{ qid: 'wfq_ha_triage', equals: 'Yes' }],
-      hloc: [{ qid: 'wfq_ha_triage', equals: 'No' }],
-    },
-    processSteps: {
-      'llto:std': [],
-      'llto:outside': [],
-      'hloc:std': [],
-      'hloc:outside': [],
-    },
+    processSteps: [],
   },
 
   // -------- Advice --------
@@ -89,25 +47,11 @@ export const defaultWorkflows: Workflow[] = [
     callTypeId: 'ct_advice',
     questions: [
       { id: 'wfq_adv_sending', type: 'facility', text: 'Sending facility' },
-      {
-        id: 'wfq_adv_triage',
-        type: 'yesno',
-        text: 'Is this a Lateral / Lower Triage Outside (LLTO) advice call? (Yes = LLTO, No = HLOC)',
-      },
       { id: 'wfq_adv_dx', type: 'diagnosis_multi', text: 'Working / suspected diagnoses' },
       { id: 'wfq_adv_svc', type: 'specialty_multi', text: 'Which specialty service(s) are required?' },
       { id: 'wfq_adv_referral', type: 'referral_resolve', text: 'Confirm receiving facility' },
     ],
-    postTriage: {
-      mode: 'questions',
-      showServicePreQuestions: true,
-      questions: [],
-    },
-    subVersionRules: {
-      llto: [{ qid: 'wfq_adv_triage', equals: 'Yes' }],
-      hloc: [{ qid: 'wfq_adv_triage', equals: 'No' }],
-    },
-    processSteps: { llto: [], hloc: [] },
+    processSteps: [],
   },
 
   // -------- Repate --------
@@ -121,20 +65,7 @@ export const defaultWorkflows: Workflow[] = [
       { id: 'wfq_rep_svc', type: 'specialty_multi', text: 'Which specialty service(s) are required?' },
       { id: 'wfq_rep_receiving', type: 'receiving_facility', text: 'Receiving facility' },
     ],
-    postTriage: {
-      mode: 'questions',
-      showServicePreQuestions: true,
-      questions: [
-        {
-          id: 'ptq_rep_ptn',
-          type: 'yesno',
-          text: 'Was the patient accepted outside of PTN?',
-          isPtnQuestion: true,
-        },
-      ],
-    },
-    subVersionRules: { default: [] },
-    processSteps: { 'default:std': [], 'default:outside': [] },
+    processSteps: [],
   },
 
   // -------- Scheduled --------
@@ -148,24 +79,7 @@ export const defaultWorkflows: Workflow[] = [
       { id: 'wfq_sch_svc', type: 'specialty_multi', text: 'Which specialty service(s) are required?' },
       { id: 'wfq_sch_receiving', type: 'receiving_facility', text: 'Receiving facility (or address)', allowFreeText: true },
     ],
-    postTriage: {
-      mode: 'transport_requirements',
-      items: [
-        {
-          id: 'tr_mode',
-          type: 'multiselect',
-          label: 'Transport mode required',
-          options: [
-            { id: 'gnd', label: 'Ground ambulance' },
-            { id: 'air', label: 'Air ambulance' },
-            { id: 'pt', label: 'Patient transport' },
-          ],
-        },
-        { id: 'tr_notes', type: 'text', label: 'Additional transport notes' },
-      ],
-    },
-    subVersionRules: { default: [] },     // single sub-version, always matches
-    processSteps: { default: [] },
+    processSteps: [],
   },
 
   // -------- Discharge --------
@@ -179,24 +93,7 @@ export const defaultWorkflows: Workflow[] = [
       { id: 'wfq_dis_svc', type: 'specialty_multi', text: 'Which specialty service(s) are required?' },
       { id: 'wfq_dis_receiving', type: 'receiving_facility', text: 'Receiving facility (or address)', allowFreeText: true },
     ],
-    postTriage: {
-      mode: 'transport_requirements',
-      items: [
-        {
-          id: 'tr_dis_mode',
-          type: 'multiselect',
-          label: 'Transport mode required',
-          options: [
-            { id: 'gnd', label: 'Ground ambulance' },
-            { id: 'air', label: 'Air ambulance' },
-            { id: 'pt', label: 'Patient transport' },
-          ],
-        },
-        { id: 'tr_dis_notes', type: 'text', label: 'Additional transport notes' },
-      ],
-    },
-    subVersionRules: { default: [] },
-    processSteps: { default: [] },
+    processSteps: [],
   },
 ];
 

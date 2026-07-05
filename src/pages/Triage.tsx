@@ -8,7 +8,6 @@ import { Button } from '../components/ui/Button';
 import { Badge } from '../components/ui/Badge';
 import { Textarea } from '../components/ui/Input';
 import { QuestionRenderer } from '../components/triage/QuestionRenderer';
-import { PreQuestionsPanel } from '../components/triage/PreQuestionsPanel';
 import { TriageTabs } from '../components/triage/TriageTabs';
 import type { TACard } from '../types';
 
@@ -56,32 +55,14 @@ export function TriagePage() {
     [taItems, t.taShown]
   );
 
-  // Decide whether the post-triage screen is needed for this workflow.
-  const postTriageNeeded = useMemo(() => {
-    const cfg = t.activeWorkflow?.postTriage;
-    if (!cfg || cfg.mode === 'none') return false;
-    if (cfg.mode === 'questions') {
-      if (cfg.questions.length > 0) return true;
-      if (cfg.showServicePreQuestions && t.acQueue.length > 0) return true;
-      return false;
-    }
-    if (cfg.mode === 'transport_requirements') {
-      return cfg.items.length > 0;
-    }
-    return false;
-  }, [t.activeWorkflow, t.acQueue.length]);
-
+  // End of questions → straight to the Result page. No post-triage step.
   useEffect(() => {
     if (t.phase !== 'workflow') return;
     if (!t.activeWorkflow) return;
     if (!isAtEnd) return;
-    if (postTriageNeeded) {
-      t.goToPreQuestions();
-    } else {
-      t.goToResult();
-      nav('/triage/result');
-    }
-  }, [t.phase, isAtEnd, postTriageNeeded, t, nav]);
+    t.goToResult();
+    nav('/triage/result');
+  }, [t.phase, isAtEnd, t, nav]);
 
   // ---- Keyboard shortcuts during the workflow phase ----
   // Y / N → select Yes / No on yes/no questions (when no input is focused).
@@ -206,20 +187,6 @@ export function TriagePage() {
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   });
-
-  if (t.phase === 'pre-questions') {
-    return (
-      <div className="space-y-4">
-        <TriageTabs />
-        <PreQuestionsPanel
-          onDone={() => {
-            t.goToResult();
-            nav('/triage/result');
-          }}
-        />
-      </div>
-    );
-  }
 
   // Transitional: a result-phase case is briefly active here while a tab
   // switch navigates to /triage/result. Render nothing rather than flashing

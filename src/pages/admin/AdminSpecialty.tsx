@@ -69,16 +69,9 @@ export function AdminSpecialtyPage() {
   function summarizeTemplates(svc: SpecialtyService): string {
     const parts: string[] = [];
     for (const ct of callTypes) {
-      const byCt = svc.templates[ct.id] ?? {};
-      let qCount = 0;
-      let sCount = 0;
-      for (const tpl of Object.values(byCt)) {
-        qCount += tpl.preQuestions.length;
-        sCount += tpl.exceptionSteps.length;
-      }
-      if (qCount > 0 || sCount > 0) {
-        parts.push(`${ct.name}: ${qCount}q / ${sCount}s`);
-      }
+      const tpl = svc.templates[ct.id];
+      const n = tpl?.steps.length ?? 0;
+      if (n > 0) parts.push(`${ct.name}: ${n} step${n === 1 ? '' : 's'}`);
     }
     return parts.join(' · ') || 'no templates configured';
   }

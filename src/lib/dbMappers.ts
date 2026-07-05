@@ -1,14 +1,22 @@
 // Maps between the app-facing camelCase types and the Postgres snake_case rows.
+//
+// Read-side mappers TOLERATE the pre-rewrite JSONB shape (sub-versions,
+// service preQuestions, `ctId:svId` override keys). Write-side always emits
+// the new flat shape.
 
 import type {
   CallType,
+  CardOverride,
+  CardOverridePart,
   Diagnosis,
   Facility,
   HealthAuthority,
   Notification,
   OverrideReason,
-  CardOverride,
+  ProcessCardStep,
+  ProcessStep,
   ReferenceCard,
+  ServiceTemplate,
   SpecialtyService,
   Workflow,
 } from '../types';
@@ -18,21 +26,18 @@ export interface CallTypeRow {
   id: string;
   name: string;
   letter: string;
-  sub_versions: unknown;
 }
 
 export function callTypeFromRow(r: CallTypeRow): CallType {
-  const rawSubs = (r.sub_versions as Array<{ id: string; name: string; letter?: string }>) ?? [];
   return {
     id: r.id,
     name: r.name,
     letter: r.letter ?? '',
-    subVersions: rawSubs.map((s) => ({ id: s.id, name: s.name, letter: s.letter ?? '' })),
   };
 }
 
 export function callTypeToRow(c: CallType): CallTypeRow {
-  return { id: c.id, name: c.name, letter: c.letter ?? '', sub_versions: c.subVersions };
+  return { id: c.id, name: c.name, letter: c.letter ?? '' };
 }
 
 // ---------- Facilities ----------
@@ -87,13 +92,54 @@ export interface SpecialtyServiceRow {
   enabled_call_type_ids: unknown;
 }
 
+// Read one Process Card template out of raw JSON. Accepts either the new
+// shape { steps: [...] } or the legacy shape { preQuestions, exceptionSteps }.
+function coerceServiceTemplate(raw: unknown): ServiceTemplate {
+  if (!raw || typeof raw !== 'object') return { steps: [] };
+  const obj = raw as { steps?: unknown; exceptionSteps?: unknown };
+  const arr = Array.isArray(obj.steps)
+    ? obj.steps
+    : Array.isArray(obj.exceptionSteps)
+      ? obj.exceptionSteps
+      : [];
+  const steps: ProcessCardStep[] = arr
+    .filter((s: unknown): s is { id: string; text: string } =>
+      !!s && typeof s === 'object' && 'id' in s && 'text' in s)
+    .map((s) => ({ id: String(s.id), text: String(s.text) }));
+  return { steps };
+}
+
+function coerceTemplates(raw: unknown): Record<string, ServiceTemplate> {
+  if (!raw || typeof raw !== 'object') return {};
+  const rec = raw as Record<string, unknown>;
+  const out: Record<string, ServiceTemplate> = {};
+  for (const [ctId, val] of Object.entries(rec)) {
+    if (!val || typeof val !== 'object') continue;
+    const v = val as { steps?: unknown; exceptionSteps?: unknown };
+    // New shape: value is a template directly.
+    if (Array.isArray(v.steps) || Array.isArray(v.exceptionSteps)) {
+      out[ctId] = coerceServiceTemplate(v);
+      continue;
+    }
+    // Legacy shape: value is Record<subVersionId, ServiceTemplate_old>.
+    // Prefer the 'default' entry; otherwise the first entry.
+    const inner = val as Record<string, unknown>;
+    const preferred = inner['default'] ?? inner[Object.keys(inner)[0]];
+    out[ctId] = coerceServiceTemplate(preferred);
+  }
+  return out;
+}
+
 export function svcFromRow(r: SpecialtyServiceRow): SpecialtyService {
   return {
     id: r.id,
     name: r.name,
     number: typeof r.number === 'number' ? r.number : 0,
-    templates: (r.templates as SpecialtyService['templates']) ?? {},
-    transportAdvisor: r.transport_advisor as SpecialtyService['transportAdvisor'],
+    templates: coerceTemplates(r.templates),
+    transportAdvisor: (r.transport_advisor as SpecialtyService['transportAdvisor']) ?? {
+      enabled: false,
+      cards: [],
+    },
     enabledCallTypeIds: (r.enabled_call_type_ids as string[]) ?? [],
   };
 }
@@ -140,23 +186,31 @@ export interface WorkflowRow {
   id: string;
   name: string;
   call_type_id: string;
-  sub_version_rules: unknown;
   questions: unknown;
-  post_triage: unknown;
   process_steps: unknown;
   position: number;
 }
 
+// The process_steps JSONB used to be Record<subVersionId | "svId:std|outside", ProcessStep[]>.
+// Collapse to a flat ProcessStep[] on read: prefer the 'default' key, else
+// the first non-empty entry.
+function coerceProcessSteps(raw: unknown): ProcessStep[] {
+  if (Array.isArray(raw)) return raw as ProcessStep[];
+  if (raw && typeof raw === 'object') {
+    const rec = raw as Record<string, unknown>;
+    const preferred = rec['default'] ?? rec[Object.keys(rec)[0]];
+    return Array.isArray(preferred) ? (preferred as ProcessStep[]) : [];
+  }
+  return [];
+}
+
 export function workflowFromRow(r: WorkflowRow): Workflow {
-  const pt = (r.post_triage as Workflow['postTriage'] | null) ?? { mode: 'none' };
   return {
     id: r.id,
     name: r.name,
     callTypeId: r.call_type_id ?? '',
-    subVersionRules: (r.sub_version_rules as Workflow['subVersionRules']) ?? {},
     questions: (r.questions as Workflow['questions']) ?? [],
-    postTriage: pt,
-    processSteps: (r.process_steps as Workflow['processSteps']) ?? {},
+    processSteps: coerceProcessSteps(r.process_steps),
   };
 }
 
@@ -165,9 +219,7 @@ export function workflowToRow(w: Workflow, position: number): WorkflowRow {
     id: w.id,
     name: w.name,
     call_type_id: w.callTypeId,
-    sub_version_rules: w.subVersionRules,
     questions: w.questions,
-    post_triage: w.postTriage,
     process_steps: w.processSteps,
     position,
   };
@@ -181,12 +233,46 @@ export interface CardOverrideRow {
   parts: unknown;
 }
 
+// Legacy override parts were keyed by "callTypeId:subVersionId". Collapse to
+// callTypeId only, merging when multiple sub-versions land on the same
+// call type.
+function coerceOverrideParts(raw: unknown): Record<string, CardOverridePart> {
+  if (!raw || typeof raw !== 'object') return {};
+  const rec = raw as Record<string, unknown>;
+  const out: Record<string, CardOverridePart> = {};
+  for (const [key, val] of Object.entries(rec)) {
+    if (!val || typeof val !== 'object') continue;
+    const v = val as {
+      deactivated?: unknown;
+      addedSteps?: unknown;
+      sOrder?: unknown;
+    };
+    const ctId = key.includes(':') ? key.split(':')[0] : key;
+    const part: CardOverridePart = {
+      deactivated: Array.isArray(v.deactivated) ? (v.deactivated as string[]) : [],
+      addedSteps: Array.isArray(v.addedSteps) ? (v.addedSteps as ProcessCardStep[]) : [],
+      sOrder: Array.isArray(v.sOrder) ? (v.sOrder as string[]) : [],
+    };
+    const existing = out[ctId];
+    if (!existing) {
+      out[ctId] = part;
+    } else {
+      out[ctId] = {
+        deactivated: Array.from(new Set([...existing.deactivated, ...part.deactivated])),
+        addedSteps: [...existing.addedSteps, ...part.addedSteps],
+        sOrder: [...existing.sOrder, ...part.sOrder],
+      };
+    }
+  }
+  return out;
+}
+
 export function ovFromRow(r: CardOverrideRow): CardOverride {
   return {
     id: r.id,
     facilityId: r.facility_id,
     svcId: r.svc_id,
-    parts: (r.parts as CardOverride['parts']) ?? {},
+    parts: coerceOverrideParts(r.parts),
   };
 }
 

@@ -15,28 +15,18 @@ export interface Session {
 }
 
 // ---------- Call Types ----------
-// Call types correspond to workflow types (High Acuity, Advice, Repate,
-// Scheduled, Discharge). Each call type may declare sub-versions (e.g.
-// LLTO/HLOC for High Acuity); service templates store content per
-// (callType, subVersion) pair. Use the literal 'default' as the sub-version
-// id when a call type has no sub-versions.
-export interface CallTypeSubVersion {
-  id: string;
-  name: string;
-  // Single character used in Process Card codes for this sub-version.
-  letter: string;
-}
+// A call type is a single, flat classification (e.g. High Acuity, Advice,
+// Repatriation, Scheduled, Discharge). Each carries a one-character `letter`
+// used in Process Card codes.
 export interface CallType {
   id: string;
   name: string;
-  // Code letter — used only when the call type has NO sub-versions.
-  // When it has sub-versions, each sub-version carries its own letter.
   letter: string;
-  subVersions: CallTypeSubVersion[];
 }
 
 // ---------- Conditions ----------
 // A list of conditions that all must match. Empty/missing = always-on.
+// Still used by workflow-question visibility (condQid/condVal below).
 export interface Condition {
   qid: string;
   equals: string;
@@ -67,50 +57,14 @@ export interface WorkflowQuestion {
   additionalInfo?: string;
 }
 
-// A question shown on the Post-Triage screen (questions mode).
-// If isPtnQuestion is true, the answer (Yes → 'outside', No → 'std') splits the
-// workflow's generic process steps into two variants per sub-version.
-export interface PostTriageQuestion {
-  id: string;
-  type: 'yesno' | 'dropdown' | 'text';
-  text: string;
-  options?: string[];
-  isPtnQuestion?: boolean;
-}
-
-export interface TransportReqItem {
-  id: string;
-  type: 'multiselect' | 'text';
-  label: string;
-  options?: Array<{ id: string; label: string }>;
-}
-
-export type PostTriageConfig =
-  | { mode: 'none' }
-  | {
-      mode: 'questions';
-      showServicePreQuestions: boolean;
-      questions: PostTriageQuestion[];
-    }
-  | {
-      mode: 'transport_requirements';
-      items: TransportReqItem[];
-    };
-
 export interface Workflow {
   id: string;
   name: string;
   callTypeId: string;                // FK → CallType.id
-  // For each sub-version of the call type, the conditions that select it
-  // (AND-ed). First sub-version whose rules ALL match is the chosen one.
-  // Conditions may reference workflow questions OR post-triage questions.
-  subVersionRules: Record<string, Condition[]>;
   questions: WorkflowQuestion[];
-  postTriage: PostTriageConfig;
-  // Process steps keyed by sub-version id, or by `${subVersionId}:${'std'|'outside'}`
-  // when the workflow's post-triage has a question flagged isPtnQuestion (the PTN
-  // dimension only branches generic process steps — not service templates).
-  processSteps: Record<string, ProcessStep[]>;
+  // Flat, ordered list of generic process steps (the "Action Card") for this
+  // workflow. No sub-versions, no PTN variants.
+  processSteps: ProcessStep[];
 }
 
 // ---------- Health Authorities ----------
@@ -149,24 +103,15 @@ export interface Facility {
 }
 
 // ---------- Specialty Services ----------
-export interface TemplateQuestion {
-  id: string;
-  type: 'yesno' | 'dropdown';
-  text: string;
-  options?: string[];
-}
-
-export interface ExceptionStep {
+// A Process Card step. Flat: no per-step conditions.
+export interface ProcessCardStep {
   id: string;
   text: string;
-  condQid?: string;        // legacy single-condition (kept for back-compat)
-  condVal?: string;
-  conditions?: Condition[]; // new multi-condition (AND-ed). If present, takes precedence.
 }
 
+// One Process Card's content for a (specialty × call-type) pair.
 export interface ServiceTemplate {
-  preQuestions: TemplateQuestion[];
-  exceptionSteps: ExceptionStep[];
+  steps: ProcessCardStep[];
 }
 
 export interface TACard {
@@ -182,9 +127,8 @@ export interface SpecialtyService {
   name: string;
   // Numeric id used (2-digit, zero-padded) in Process Card codes.
   number: number;
-  // Nested: templates[callTypeId][subVersionId] = ServiceTemplate.
-  // For call types with no sub-versions, the inner key is 'default'.
-  templates: Record<string, Record<string, ServiceTemplate>>;
+  // Flat: one Process Card template per call type.
+  templates: Record<string, ServiceTemplate>;
   transportAdvisor: {
     enabled: boolean;
     cards: TACard[];
@@ -198,14 +142,11 @@ export interface SpecialtyService {
 // ---------- Card Overrides ----------
 export interface CardOverridePart {
   deactivated: string[];
-  addedQuestions: TemplateQuestion[];
-  addedSteps: ExceptionStep[];
-  qOrder: string[];
+  addedSteps: ProcessCardStep[];
   sOrder: string[];
 }
 
-// Override is keyed by `${callTypeId}:${subVersionId}` so it tracks the same
-// dimensionality as service templates.
+// Override is keyed by callTypeId only (no sub-version dimension anymore).
 export interface CardOverride {
   id: string;
   facilityId: string;
@@ -222,6 +163,9 @@ export interface Diagnosis {
 }
 
 // ---------- Process steps ----------
+// Generic action-card step. Same shape as ProcessCardStep; kept as a distinct
+// name because they represent different content (workflow-level vs
+// service-level).
 export interface ProcessStep {
   id: string;
   text: string;

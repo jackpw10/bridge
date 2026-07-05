@@ -9,9 +9,8 @@ import { Select } from '../components/ui/Input';
 import type {
   CardOverride,
   CardOverridePart,
-  ExceptionStep,
+  ProcessCardStep,
   SpecialtyService,
-  TemplateQuestion,
 } from '../types';
 
 function applyOrder<T extends { id: string }>(all: T[], order: string[]): T[] {
@@ -26,30 +25,16 @@ function applyOrder<T extends { id: string }>(all: T[], order: string[]): T[] {
   return out;
 }
 
-interface MergedCard {
-  qs: TemplateQuestion[];
-  steps: ExceptionStep[];
-}
-
 function mergeForCallType(
   svc: SpecialtyService,
   override: CardOverride | null,
   callTypeId: string,
-  subVersionId: string
-): MergedCard {
-  const byCt = svc.templates[callTypeId] ?? {};
-  const tpl = byCt[subVersionId];
-  const partKey = `${callTypeId}:${subVersionId}`;
-  const part: CardOverridePart | null = override?.parts[partKey] ?? null;
-  const baseQs = (tpl?.preQuestions ?? []).filter((q) => !part?.deactivated.includes(q.id));
-  const allQs = [...baseQs, ...(part?.addedQuestions ?? [])];
-  const qs = applyOrder(allQs, part?.qOrder ?? []);
-
-  const baseSteps = (tpl?.exceptionSteps ?? []).filter((s) => !part?.deactivated.includes(s.id));
+): ProcessCardStep[] {
+  const tpl = svc.templates[callTypeId];
+  const part: CardOverridePart | null = override?.parts[callTypeId] ?? null;
+  const baseSteps = (tpl?.steps ?? []).filter((s) => !part?.deactivated.includes(s.id));
   const allSteps = [...baseSteps, ...(part?.addedSteps ?? [])];
-  const steps = applyOrder(allSteps, part?.sOrder ?? []);
-
-  return { qs, steps };
+  return applyOrder(allSteps, part?.sOrder ?? []);
 }
 
 export function ProcessCardsPage() {
@@ -64,16 +49,10 @@ export function ProcessCardsPage() {
   const [facId, setFacId] = useState('');
   const [svcIds, setSvcIds] = useState<string[]>([]);
   const [callTypeId, setCallTypeId] = useState<string>('');
-  const [subVersionId, setSubVersionId] = useState<string>('default');
 
   useEffect(() => {
     if (!callTypeId && callTypes.length > 0) setCallTypeId(callTypes[0].id);
   }, [callTypes, callTypeId]);
-
-  useEffect(() => {
-    const ct = callTypes.find((c) => c.id === callTypeId);
-    setSubVersionId(ct?.subVersions[0]?.id ?? 'default');
-  }, [callTypeId, callTypes]);
 
   const facility = facilities.find((f) => f.id === facId) ?? null;
   const services = useMemo(
@@ -119,7 +98,7 @@ export function ProcessCardsPage() {
         <div>
           <h1 className="text-2xl font-bold text-slate-800">Process card lookup</h1>
           <p className="text-sm text-slate-500">
-            Preview the action card content and notification requirements for a specific
+            Preview the Process Card content and notification requirements for a specific
             facility / service / call type, without running a triage case.
           </p>
         </div>
@@ -149,30 +128,13 @@ export function ProcessCardsPage() {
             ))}
           </Select>
         </div>
-        {(activeCallType?.subVersions.length ?? 0) > 0 && (
-          <div className="mt-3">
-            <label className="text-xs font-medium text-slate-600 mb-1 block">Sub-version</label>
-            <div className="flex flex-wrap gap-2">
-              {activeCallType?.subVersions.map((sv) => (
-                <Button
-                  key={sv.id}
-                  size="sm"
-                  variant={subVersionId === sv.id ? 'primary' : 'secondary'}
-                  onClick={() => setSubVersionId(sv.id)}
-                >
-                  {sv.name}
-                </Button>
-              ))}
-            </div>
-          </div>
-        )}
       </Card>
 
       {!facId || svcIds.length === 0 ? (
         <Card>
           <div className="text-sm text-slate-500">
             Pick a receiving facility <strong>and</strong> at least one service to see
-            the notification requirements and action card content.
+            the notification requirements and Process Card content.
           </div>
         </Card>
       ) : (
@@ -213,8 +175,8 @@ export function ProcessCardsPage() {
               const ov = facility
                 ? overrides.find((o) => o.facilityId === facility.id && o.svcId === svc.id) ?? null
                 : null;
-              const merged = mergeForCallType(svc, ov, callTypeId, subVersionId);
-              const hasOverride = !!ov?.parts[`${callTypeId}:${subVersionId}`];
+              const steps = mergeForCallType(svc, ov, callTypeId);
+              const hasOverride = !!ov?.parts[callTypeId];
               return (
                 <Card
                   key={svc.id}
@@ -222,56 +184,24 @@ export function ProcessCardsPage() {
                     <span className="flex items-center gap-2">
                       <span>{svc.name}</span>
                       {activeCallType && <Badge tone="blue">{activeCallType.name}</Badge>}
-                      {activeCallType && activeCallType.subVersions.length > 0 && (
-                        <Badge tone="green">{activeCallType.subVersions.find((s) => s.id === subVersionId)?.name ?? subVersionId}</Badge>
-                      )}
                       {hasOverride && <Badge tone="amber">facility override</Badge>}
                     </span>
                   }
                   description={facility ? `at ${facility.name}` : 'no facility selected'}
                 >
-                  <div className="space-y-3">
-                    <section>
-                      <div className="text-xs font-semibold uppercase text-slate-500 mb-1">
-                        Pre-questions
-                      </div>
-                      {merged.qs.length === 0 ? (
-                        <div className="text-xs text-slate-400">None.</div>
-                      ) : (
-                        <ul className="text-sm space-y-1">
-                          {merged.qs.map((q) => (
-                            <li key={q.id} className="text-slate-700">
-                              <span className="font-medium">{q.text}</span>{' '}
-                              <span className="text-xs text-slate-400">
-                                ({q.type === 'dropdown' ? `dropdown: ${(q.options ?? []).join(', ')}` : 'Yes / No'})
-                              </span>
-                            </li>
-                          ))}
-                        </ul>
-                      )}
-                    </section>
-
-                    <section>
-                      <div className="text-xs font-semibold uppercase text-slate-500 mb-1">
-                        Exception steps
-                      </div>
-                      {merged.steps.length === 0 ? (
-                        <div className="text-xs text-slate-400">None.</div>
-                      ) : (
-                        <ol className="list-decimal pl-5 text-sm space-y-1">
-                          {merged.steps.map((s) => (
-                            <li key={s.id}>
-                              {s.text}
-                              {s.condQid && (
-                                <span className="text-xs text-slate-400 ml-1">
-                                  (only when "{merged.qs.find((q) => q.id === s.condQid)?.text ?? s.condQid}" = "{s.condVal}")
-                                </span>
-                              )}
-                            </li>
-                          ))}
-                        </ol>
-                      )}
-                    </section>
+                  <div>
+                    <div className="text-xs font-semibold uppercase text-slate-500 mb-1">
+                      Process Card steps
+                    </div>
+                    {steps.length === 0 ? (
+                      <div className="text-xs text-slate-400">None.</div>
+                    ) : (
+                      <ol className="list-decimal pl-5 text-sm space-y-1">
+                        {steps.map((s) => (
+                          <li key={s.id}>{s.text}</li>
+                        ))}
+                      </ol>
+                    )}
                   </div>
                 </Card>
               );

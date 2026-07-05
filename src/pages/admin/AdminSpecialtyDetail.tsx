@@ -3,20 +3,19 @@ import { useEffect, useState } from 'react';
 import { useAppStore } from '../../store/appStore';
 import { Card } from '../../components/ui/Card';
 import { Button } from '../../components/ui/Button';
-import { Input, Select, Textarea } from '../../components/ui/Input';
+import { Input, Textarea } from '../../components/ui/Input';
 import { Toggle } from '../../components/ui/Toggle';
 import { MultiSelect } from '../../components/ui/MultiSelect';
 import { DragList } from '../../components/ui/DragList';
 import type {
-  ExceptionStep,
+  ProcessCardStep,
   ServiceTemplate,
   SpecialtyService,
   TACard,
-  TemplateQuestion,
 } from '../../types';
 import { uid } from '../../utils/id';
 
-const emptyTemplate = (): ServiceTemplate => ({ preQuestions: [], exceptionSteps: [] });
+const emptyTemplate = (): ServiceTemplate => ({ steps: [] });
 
 export function AdminSpecialtyDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -28,19 +27,10 @@ export function AdminSpecialtyDetailPage() {
 
   const svc = services.find((s) => s.id === id);
   const [tabCtId, setTabCtId] = useState<string>('');
-  const [tabSvId, setTabSvId] = useState<string>('default');
 
   useEffect(() => {
     if (!tabCtId && callTypes.length > 0) setTabCtId(callTypes[0].id);
   }, [callTypes, tabCtId]);
-
-  // Reset sub-version tab when call type tab changes — default to first sub-version
-  // (or 'default' for call types without sub-versions).
-  useEffect(() => {
-    const ct = callTypes.find((c) => c.id === tabCtId);
-    const fallback = ct && ct.subVersions.length > 0 ? ct.subVersions[0].id : 'default';
-    setTabSvId(fallback);
-  }, [tabCtId, callTypes]);
 
   if (!svc) {
     return (
@@ -52,61 +42,33 @@ export function AdminSpecialtyDetailPage() {
   }
   const svcRef: SpecialtyService = svc;
 
-  // Active template lives at templates[callTypeId][subVersionId].
-  const activeCtTemplates = svcRef.templates[tabCtId] ?? {};
-  const currentTpl: ServiceTemplate = activeCtTemplates[tabSvId] ?? emptyTemplate();
+  // Active template lives at templates[callTypeId].
+  const currentTpl: ServiceTemplate = svcRef.templates[tabCtId] ?? emptyTemplate();
 
   function patch(p: Partial<SpecialtyService>) {
     setServices(services.map((s) => (s.id === svcRef.id ? { ...s, ...p } : s)));
   }
 
-  function patchTemplate(ctId: string, svId: string, p: Partial<ServiceTemplate>) {
-    const byCt = svcRef.templates[ctId] ?? {};
-    const existing = byCt[svId] ?? emptyTemplate();
-    const nextByCt = { ...byCt, [svId]: { ...existing, ...p } };
-    patch({ templates: { ...svcRef.templates, [ctId]: nextByCt } });
-  }
-
-  function addQ() {
-    const q: TemplateQuestion = { id: uid('tq'), type: 'yesno', text: 'New question' };
-    patchTemplate(tabCtId, tabSvId, { preQuestions: [...currentTpl.preQuestions, q] });
-  }
-  function updQ(qid: string, patchQ: Partial<TemplateQuestion>) {
-    patchTemplate(tabCtId, tabSvId, {
-      preQuestions: currentTpl.preQuestions.map((q) => (q.id === qid ? { ...q, ...patchQ } : q)),
-    });
-  }
-  function removeQ(qid: string) {
-    patchTemplate(tabCtId, tabSvId, {
-      preQuestions: currentTpl.preQuestions.filter((q) => q.id !== qid),
-    });
-  }
-  function reorderQs(next: TemplateQuestion[]) {
-    patchTemplate(tabCtId, tabSvId, { preQuestions: next });
+  function patchTemplate(ctId: string, p: Partial<ServiceTemplate>) {
+    const existing = svcRef.templates[ctId] ?? emptyTemplate();
+    patch({ templates: { ...svcRef.templates, [ctId]: { ...existing, ...p } } });
   }
 
   function addS() {
-    const s: ExceptionStep = { id: uid('ts'), text: 'New step' };
-    patchTemplate(tabCtId, tabSvId, { exceptionSteps: [...currentTpl.exceptionSteps, s] });
+    const s: ProcessCardStep = { id: uid('ts'), text: 'New step' };
+    patchTemplate(tabCtId, { steps: [...currentTpl.steps, s] });
   }
-  function updS(sid: string, patchS: Partial<ExceptionStep>) {
-    patchTemplate(tabCtId, tabSvId, {
-      exceptionSteps: currentTpl.exceptionSteps.map((s) =>
-        s.id === sid ? { ...s, ...patchS } : s
-      ),
+  function updS(sid: string, text: string) {
+    patchTemplate(tabCtId, {
+      steps: currentTpl.steps.map((s) => (s.id === sid ? { ...s, text } : s)),
     });
   }
   function removeS(sid: string) {
-    patchTemplate(tabCtId, tabSvId, {
-      exceptionSteps: currentTpl.exceptionSteps.filter((s) => s.id !== sid),
-    });
+    patchTemplate(tabCtId, { steps: currentTpl.steps.filter((s) => s.id !== sid) });
   }
-  function reorderS(next: ExceptionStep[]) {
-    patchTemplate(tabCtId, tabSvId, { exceptionSteps: next });
+  function reorderS(next: ProcessCardStep[]) {
+    patchTemplate(tabCtId, { steps: next });
   }
-
-  const activeCallType = callTypes.find((c) => c.id === tabCtId);
-  const subTabs = activeCallType?.subVersions ?? [];
 
   // ---------- Transport Advisor ----------
   function patchTA(p: Partial<SpecialtyService['transportAdvisor']>) {
@@ -192,7 +154,7 @@ export function AdminSpecialtyDetailPage() {
         )}
       </Card>
 
-      <Card title="Process Card Template" description="Per call-type pre-questions and exception steps. Each call type tab is independent.">
+      <Card title="Process Card Template" description="One flat list of steps per call type.">
         {callTypes.length === 0 ? (
           <div className="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded p-2">
             No call types defined yet. Add some in{' '}
@@ -201,7 +163,7 @@ export function AdminSpecialtyDetailPage() {
           </div>
         ) : (
           <>
-            <div className="flex flex-wrap gap-2 border-b border-slate-200 mb-2">
+            <div className="flex flex-wrap gap-2 border-b border-slate-200 mb-4">
               {callTypes.map((ct) => (
                 <button
                   key={ct.id}
@@ -213,88 +175,33 @@ export function AdminSpecialtyDetailPage() {
                 </button>
               ))}
             </div>
-            {subTabs.length > 0 && (
-              <div className="flex flex-wrap gap-2 mb-4">
-                {subTabs.map((sv) => (
-                  <button
-                    key={sv.id}
-                    type="button"
-                    onClick={() => setTabSvId(sv.id)}
-                    className={`px-2.5 py-1 text-xs rounded ${tabSvId === sv.id ? 'bg-brand-600 text-white' : 'bg-slate-100 text-slate-700'}`}
-                  >
-                    {sv.name}
-                  </button>
-                ))}
-              </div>
-            )}
 
-            <section className="space-y-6">
-              <div>
-                <div className="flex items-center justify-between mb-2">
-                  <h3 className="font-semibold text-slate-700">Pre-questions</h3>
-                  <Button size="sm" onClick={addQ}>+ Add</Button>
-                </div>
-                <DragList
-                  items={currentTpl.preQuestions}
-                  onReorder={reorderQs}
-                  renderItem={(q, handle) => (
-                    <div className="border rounded-md p-3 bg-white">
-                      <div className="flex items-start gap-2">
-                        {handle}
-                        <div className="flex-1 space-y-2">
-                          <Input value={q.text} onChange={(e) => updQ(q.id, { text: e.target.value })} />
-                          <div className="grid grid-cols-2 gap-2">
-                            <Select value={q.type} onChange={(e) => updQ(q.id, { type: e.target.value as TemplateQuestion['type'] })}>
-                              <option value="yesno">Yes / No</option>
-                              <option value="dropdown">Dropdown</option>
-                            </Select>
-                            {q.type === 'dropdown' && (
-                              <Input
-                                placeholder="opt1|opt2"
-                                value={(q.options ?? []).join('|')}
-                                onChange={(e) => updQ(q.id, { options: e.target.value.split('|').map((x) => x.trim()).filter(Boolean) })}
-                              />
-                            )}
-                          </div>
-                        </div>
-                        <Button size="sm" variant="ghost" onClick={() => removeQ(q.id)}>Delete</Button>
-                      </div>
-                    </div>
-                  )}
-                />
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <h3 className="font-semibold text-slate-700">Process Card steps</h3>
+                <Button size="sm" onClick={addS}>+ Add step</Button>
               </div>
-
-              <div>
-                <div className="flex items-center justify-between mb-2">
-                  <h3 className="font-semibold text-slate-700">Exception steps</h3>
-                  <Button size="sm" onClick={addS}>+ Add</Button>
-                </div>
-                <DragList
-                  items={currentTpl.exceptionSteps}
-                  onReorder={reorderS}
-                  renderItem={(s, handle) => (
-                    <div className="border rounded-md p-3 bg-white">
-                      <div className="flex items-start gap-2">
-                        {handle}
-                        <div className="flex-1 space-y-2">
-                          <Textarea value={s.text} onChange={(e) => updS(s.id, { text: e.target.value })} />
-                          <div className="grid grid-cols-2 gap-2">
-                            <Select value={s.condQid ?? ''} onChange={(e) => updS(s.id, { condQid: e.target.value || undefined })}>
-                              <option value="">— unconditional —</option>
-                              {currentTpl.preQuestions.map((q) => (
-                                <option key={q.id} value={q.id}>{q.text}</option>
-                              ))}
-                            </Select>
-                            <Input placeholder="when answer = …" value={s.condVal ?? ''} onChange={(e) => updS(s.id, { condVal: e.target.value || undefined })} />
-                          </div>
-                        </div>
-                        <Button size="sm" variant="ghost" onClick={() => removeS(s.id)}>Delete</Button>
-                      </div>
+              <DragList
+                items={currentTpl.steps}
+                onReorder={reorderS}
+                renderItem={(s, handle) => (
+                  <div className="border rounded-md p-3 bg-white">
+                    <div className="flex items-start gap-2">
+                      {handle}
+                      <Textarea
+                        value={s.text}
+                        onChange={(e) => updS(s.id, e.target.value)}
+                        className="flex-1"
+                      />
+                      <Button size="sm" variant="ghost" onClick={() => removeS(s.id)}>Delete</Button>
                     </div>
-                  )}
-                />
-              </div>
-            </section>
+                  </div>
+                )}
+              />
+              {currentTpl.steps.length === 0 && (
+                <div className="text-xs text-slate-400 mt-2">No steps yet for this call type.</div>
+              )}
+            </div>
           </>
         )}
       </Card>
