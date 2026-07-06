@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useTriage } from '../hooks/useTriage';
 import { useAppStore } from '../store/appStore';
@@ -9,6 +9,7 @@ import { Combobox } from '../components/ui/Combobox';
 import { TriageTabs } from '../components/triage/TriageTabs';
 import { ProcessCardLookup } from '../components/triage/ProcessCardLookup';
 import { CaseEventLog } from '../components/triage/CaseEventLog';
+import { QuestionRenderer } from '../components/triage/QuestionRenderer';
 import { uid } from '../utils/id';
 
 export function ResultPage() {
@@ -101,6 +102,21 @@ export function ResultPage() {
     // by caseId + phase is enough for now.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [t.caseId]);
+
+  // Log any change to the receiving facility while on the Result page. This
+  // covers the inline editor below, whichever underlying question drives it.
+  const prevDestId = useRef<string | null>(t.destFacility?.id ?? null);
+  useEffect(() => {
+    const cur = t.destFacility?.id ?? null;
+    if (prevDestId.current !== null && prevDestId.current !== cur) {
+      t.logAction(
+        'receiving_facility_changed',
+        `Receiving facility: ${t.destFacility?.name ?? '—'}`,
+        { facId: cur },
+      );
+    }
+    prevDestId.current = cur;
+  }, [t.destFacility?.id, t]);
 
   // ----- case summary text -----
   const summary = useMemo(() => buildSummary(), [t, facilities, specialty, diagnoses, filteredNotifReqs, reasons, initialQs]);
@@ -197,6 +213,18 @@ export function ResultPage() {
   const refSelected = refCards.find((c) => c.id === refOpen);
 
   const [copied, setCopied] = useState(false);
+  const [editingDest, setEditingDest] = useState(false);
+
+  // The workflow question whose answer drives destFacility. Prefer
+  // referral_resolve (richer UX: 3 default destinations + custom override +
+  // reason). Fall back to a plain receiving_facility picker.
+  const destinationQuestion = useMemo(() => {
+    return (
+      t.visibleQuestions.find((q) => q.type === 'referral_resolve') ??
+      t.visibleQuestions.find((q) => q.type === 'receiving_facility') ??
+      null
+    );
+  }, [t.visibleQuestions]);
   function copy() {
     navigator.clipboard.writeText(summary).then(() => {
       setCopied(true);
@@ -264,6 +292,43 @@ export function ResultPage() {
               </ul>
             </Card>
           )}
+
+          {destinationQuestion && (
+            <Card
+              title="Receiving facility"
+              description="Change this to update the Process Cards and notification requirements below."
+              actions={
+                <Button
+                  size="sm"
+                  variant={editingDest ? 'secondary' : 'ghost'}
+                  onClick={() => setEditingDest((v) => !v)}
+                >
+                  {editingDest ? 'Done' : 'Change'}
+                </Button>
+              }
+            >
+              <div className="space-y-2">
+                <div className="text-sm">
+                  <span className="text-slate-500">Currently:</span>{' '}
+                  <span className="font-medium text-slate-800">
+                    {t.destFacility?.name ?? '—'}
+                  </span>
+                </div>
+                {editingDest && (
+                  <div className="pt-2 border-t border-slate-200">
+                    <QuestionRenderer
+                      key={destinationQuestion.id}
+                      question={destinationQuestion}
+                      answers={t.answers}
+                      setAnswer={t.setAnswer}
+                      callTypeId={t.callTypeId}
+                    />
+                  </div>
+                )}
+              </div>
+            </Card>
+          )}
+
           {t.acQueue.length === 0 ? (
             <Card>
               <div className="text-sm text-slate-500">
