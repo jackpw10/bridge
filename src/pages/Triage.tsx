@@ -6,7 +6,7 @@ import { useTriageStore } from '../store/triageStore';
 import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
 import { Badge } from '../components/ui/Badge';
-import { Textarea } from '../components/ui/Input';
+import { NotesLog } from '../components/ui/NotesLog';
 import { QuestionRenderer } from '../components/triage/QuestionRenderer';
 import { TriageTabs } from '../components/triage/TriageTabs';
 import type { TACard } from '../types';
@@ -348,14 +348,9 @@ export function TriagePage() {
         <div className="lg:col-span-1">
           <Card
             title="Additional Information"
-            description="Notes can be added or updated any time during triage."
+            description="Enter to save a timestamped note."
           >
-            <Textarea
-              value={t.notes}
-              onChange={(e) => t.setNotes(e.target.value)}
-              placeholder="Type any extra context, clinical notes, or handoff details…"
-              rows={8}
-            />
+            <NotesLog value={t.notes} onChange={t.setNotes} />
           </Card>
         </div>
       </div>

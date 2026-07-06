@@ -76,6 +76,9 @@ export interface InitialCallQuestion {
   type: 'yesno' | 'dropdown' | 'text';
   text: string;
   options?: string[];
+  // Free-form reference text shown to the caller in the side panel when
+  // this question is the one they're currently answering.
+  instructions?: string;
 }
 
 // ---------- Health Authorities ----------

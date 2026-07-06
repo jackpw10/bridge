@@ -131,12 +131,13 @@ create table if not exists public.reference_cards (
 );
 
 create table if not exists public.initial_call_questions (
-  id         text primary key,
-  text       text not null,
-  type       text not null default 'text' check (type in ('yesno','dropdown','text')),
-  options    jsonb not null default '[]'::jsonb,
-  position   integer not null default 0,
-  created_at timestamptz not null default now()
+  id           text primary key,
+  text         text not null,
+  type         text not null default 'text' check (type in ('yesno','dropdown','text')),
+  options      jsonb not null default '[]'::jsonb,
+  instructions text,
+  position     integer not null default 0,
+  created_at   timestamptz not null default now()
 );
 
 -- --------------------- COLUMN PATCHES FOR EXISTING TABLES --------------------
@@ -161,6 +162,8 @@ alter table public.workflows          add column if not exists position         
 alter table public.workflows          add column if not exists created_at        timestamptz not null default now();
 
 alter table public.card_overrides     add column if not exists parts             jsonb not null default '{}'::jsonb;
+
+alter table public.initial_call_questions add column if not exists instructions text;
 
 -- ------------------------------ NOTIFICATIONS --------------------------------
 create table if not exists public.notifications (

@@ -6,13 +6,18 @@ import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
 import { Input, Select } from '../components/ui/Input';
 import { Combobox } from '../components/ui/Combobox';
+import { NotesLog } from '../components/ui/NotesLog';
 import { TriageTabs } from '../components/triage/TriageTabs';
 import type { InitialCallQuestion } from '../types';
 
-// Two-step "New Case" flow:
-//   1. Initial Call Questions (collected before a call type is chosen).
-//      If none are configured, this step is skipped.
-//   2. Call-type picker → Start Case.
+// Three-step "New Case" flow:
+//   1. idle          — big Start Case button, nothing else.
+//   2. answering     — initial call questions on the left, right column has
+//                      Instructions (based on the first-unanswered question)
+//                      and the Additional Information note log.
+//   3. pickCallType  — call-type picker + final Begin triage button.
+type Phase = 'idle' | 'answering' | 'pickCallType';
+
 export function TriageStartPage() {
   const workflows = useAppStore((s) => s.workflows);
   const callTypes = useAppStore((s) => s.callTypes);
@@ -20,19 +25,10 @@ export function TriageStartPage() {
   const startCase = useTriageStore((s) => s.startCase);
   const nav = useNavigate();
 
+  const [phase, setPhase] = useState<Phase>('idle');
   const [answers, setAnswers] = useState<Record<string, string>>({});
-  const [step, setStep] = useState<'initial' | 'callType'>(
-    initialQs.length > 0 ? 'initial' : 'callType',
-  );
+  const [notes, setNotes] = useState<string>('');
   const [picked, setPicked] = useState('');
-
-  // If the initial-questions list changes while the picker is open (e.g.
-  // realtime), and there are now unanswered ones, bounce back to step 1.
-  useEffect(() => {
-    if (step === 'callType' && initialQs.some((q) => !answers[q.id]?.trim())) {
-      setStep('initial');
-    }
-  }, [initialQs, answers, step]);
 
   const ctById = useMemo(() => new Map(callTypes.map((c) => [c.id, c])), [callTypes]);
   const visibleWorkflows = useMemo(
@@ -44,96 +40,173 @@ export function TriageStartPage() {
     if (!picked && visibleWorkflows.length > 0) setPicked(visibleWorkflows[0].id);
   }, [visibleWorkflows, picked]);
 
+  const firstUnanswered = initialQs.find((q) => !(answers[q.id] ?? '').trim());
+  const activeInstructions =
+    firstUnanswered?.instructions ??
+    (initialQs.length > 0
+      ? initialQs[initialQs.length - 1].instructions
+      : undefined);
   const allInitialAnswered = initialQs.every((q) => (answers[q.id] ?? '').trim());
 
   function setAnswer(qid: string, v: string) {
     setAnswers((a) => ({ ...a, [qid]: v }));
   }
 
+  function begin() {
+    if (initialQs.length === 0) {
+      // No questions configured — jump straight to the call-type picker but
+      // still show the notes column so the caller can log context.
+      setPhase('pickCallType');
+    } else {
+      setPhase('answering');
+    }
+  }
+
   function start() {
     if (!picked) return;
-    startCase(picked, answers);
+    startCase(picked, answers, notes);
     nav('/triage/run');
   }
 
+  // -------- phase: idle --------
+  if (phase === 'idle') {
+    return (
+      <div className="space-y-4">
+        <TriageTabs />
+        <div className="max-w-xl mx-auto mt-16 space-y-4 text-center">
+          <div>
+            <h1 className="text-2xl font-bold text-slate-800">Start a New Case</h1>
+            <p className="text-sm text-slate-500 mt-1">
+              Click the button below to open the case and start capturing information.
+            </p>
+          </div>
+          <Button size="lg" className="w-full py-6 text-lg" onClick={begin}>
+            Start Case
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
+  // -------- phase: answering or pickCallType (both use the two-column layout) --------
   return (
     <div className="space-y-4">
       <TriageTabs />
-      <div className="max-w-xl mx-auto mt-6 space-y-4">
-        <div>
-          <h1 className="text-2xl font-bold text-slate-800">Start a New Case</h1>
-          <p className="text-sm text-slate-500">
-            {step === 'initial'
-              ? 'Answer the initial call questions, then pick the call type.'
-              : 'Pick the call type for this case, then click Start Case. Each case you start opens its own tab.'}
-          </p>
+
+      <div>
+        <h1 className="text-2xl font-bold text-slate-800">Start a New Case</h1>
+        <p className="text-sm text-slate-500">
+          {phase === 'answering'
+            ? 'Answer the initial call questions. Notes can be logged on the right at any time.'
+            : 'Pick the call type for this case, then click Begin triage.'}
+        </p>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+        {/* Left: initial questions OR call-type picker */}
+        <div className="lg:col-span-2 space-y-4">
+          {phase === 'answering' ? (
+            <>
+              <Card
+                title="Initial Call Questions"
+                description="Captured for every case regardless of call type."
+              >
+                <div className="space-y-4">
+                  {initialQs.map((q) => (
+                    <InitialQuestionRow
+                      key={q.id}
+                      q={q}
+                      active={firstUnanswered?.id === q.id}
+                      value={answers[q.id] ?? ''}
+                      onChange={(v) => setAnswer(q.id, v)}
+                    />
+                  ))}
+                </div>
+              </Card>
+              <div className="flex justify-end">
+                <Button
+                  onClick={() => setPhase('pickCallType')}
+                  disabled={!allInitialAnswered}
+                >
+                  Next — pick call type →
+                </Button>
+              </div>
+            </>
+          ) : visibleWorkflows.length === 0 ? (
+            <Card>
+              <div className="text-sm text-slate-500">
+                No call types configured yet. Ask an admin to set one up in Admin → Call Types.
+              </div>
+            </Card>
+          ) : (
+            <>
+              <Card title="Call type">
+                <div className="space-y-4">
+                  <Select
+                    label="Call Type"
+                    autoFocus
+                    value={picked}
+                    onChange={(e) => setPicked(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        start();
+                      }
+                    }}
+                  >
+                    {visibleWorkflows.map((w) => (
+                      <option key={w.id} value={w.id}>
+                        {ctById.get(w.callTypeId)?.name ?? w.name}
+                      </option>
+                    ))}
+                  </Select>
+                  <Button
+                    onClick={start}
+                    className="w-full"
+                    size="lg"
+                    disabled={!picked}
+                  >
+                    Begin triage
+                  </Button>
+                </div>
+              </Card>
+              {initialQs.length > 0 && (
+                <div>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => setPhase('answering')}
+                  >
+                    ← Back to initial questions
+                  </Button>
+                </div>
+              )}
+            </>
+          )}
         </div>
 
-        {step === 'initial' ? (
-          <>
-            <Card
-              title="Initial Call Questions"
-              description="Captured for every case regardless of call type."
-            >
-              <div className="space-y-4">
-                {initialQs.map((q) => (
-                  <InitialQuestionRow
-                    key={q.id}
-                    q={q}
-                    value={answers[q.id] ?? ''}
-                    onChange={(v) => setAnswer(q.id, v)}
-                  />
-                ))}
-              </div>
-            </Card>
-            <div className="flex justify-end">
-              <Button onClick={() => setStep('callType')} disabled={!allInitialAnswered}>
-                Next — pick call type →
-              </Button>
-            </div>
-          </>
-        ) : visibleWorkflows.length === 0 ? (
-          <Card>
-            <div className="text-sm text-slate-500">
-              No call types configured yet. Ask an admin to set one up in Admin → Call Types.
-            </div>
-          </Card>
-        ) : (
-          <>
-            <Card>
-              <div className="space-y-4">
-                <Select
-                  label="Call Type"
-                  autoFocus
-                  value={picked}
-                  onChange={(e) => setPicked(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') {
-                      e.preventDefault();
-                      start();
-                    }
-                  }}
-                >
-                  {visibleWorkflows.map((w) => (
-                    <option key={w.id} value={w.id}>
-                      {ctById.get(w.callTypeId)?.name ?? w.name}
-                    </option>
-                  ))}
-                </Select>
-                <Button onClick={start} className="w-full" size="lg" disabled={!picked}>
-                  Start Case
-                </Button>
-              </div>
-            </Card>
-            {initialQs.length > 0 && (
-              <div className="flex justify-start">
-                <Button size="sm" variant="ghost" onClick={() => setStep('initial')}>
-                  ← Back to initial questions
-                </Button>
-              </div>
+        {/* Right: instructions + notes log */}
+        <div className="lg:col-span-1 space-y-4">
+          <Card title="Instructions">
+            {activeInstructions ? (
+              <p className="text-sm whitespace-pre-wrap text-slate-700">
+                {activeInstructions}
+              </p>
+            ) : (
+              <p className="text-sm text-slate-400">
+                {phase === 'answering' && firstUnanswered
+                  ? 'No instructions configured for this question.'
+                  : 'No instructions to show right now.'}
+              </p>
             )}
-          </>
-        )}
+          </Card>
+          <Card
+            title="Additional Information"
+            description="Enter to save a timestamped note."
+          >
+            <NotesLog value={notes} onChange={setNotes} />
+          </Card>
+        </div>
       </div>
     </div>
   );
@@ -143,13 +216,15 @@ function InitialQuestionRow({
   q,
   value,
   onChange,
+  active,
 }: {
   q: InitialCallQuestion;
   value: string;
   onChange: (v: string) => void;
+  active?: boolean;
 }) {
   return (
-    <div>
+    <div className={active ? 'ring-2 ring-brand-400 rounded-md p-2 -m-2' : ''}>
       <div className="text-sm font-medium text-slate-700 mb-1">{q.text}</div>
       {q.type === 'yesno' && (
         <div className="flex gap-2">

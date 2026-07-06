@@ -327,6 +327,7 @@ export interface InitialCallQuestionRow {
   text: string;
   type: string;
   options: unknown;
+  instructions: string | null;
   position: number;
 }
 
@@ -339,6 +340,7 @@ export function icqFromRow(r: InitialCallQuestionRow): InitialCallQuestion {
     type: t,
     text: r.text,
     options: Array.isArray(r.options) ? (r.options as string[]) : undefined,
+    instructions: r.instructions ?? undefined,
   };
 }
 
@@ -348,6 +350,7 @@ export function icqToRow(q: InitialCallQuestion, position: number): InitialCallQ
     text: q.text,
     type: q.type,
     options: q.options ?? [],
+    instructions: q.instructions ?? null,
     position,
   };
 }

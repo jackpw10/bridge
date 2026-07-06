@@ -89,6 +89,14 @@ export function AdminInitialCallQuestionsPage() {
                         />
                       )}
                     </div>
+                    <Textarea
+                      label="Instructions (shown to the caller when this question is active)"
+                      value={q.instructions ?? ''}
+                      onChange={(e) =>
+                        patch(q.id, { instructions: e.target.value || undefined })
+                      }
+                      placeholder="Optional. Free-form text shown in the side panel."
+                    />
                     <Badge tone="slate">{q.type}</Badge>
                   </div>
                   <Button size="sm" variant="ghost" onClick={() => remove(q.id)}>

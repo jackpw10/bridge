@@ -25,7 +25,11 @@ interface TriageRuntime {
   activeCaseId: string | null;
 
   // ----- case lifecycle -----
-  startCase: (workflowId: string, initialAnswers?: Record<string, string>) => string; // returns the new case id
+  startCase: (
+    workflowId: string,
+    initialAnswers?: Record<string, string>,
+    initialNotes?: string,
+  ) => string; // returns the new case id
   switchCase: (caseId: string) => void;
   closeCase: (caseId: string) => void;
 
@@ -40,7 +44,11 @@ interface TriageRuntime {
   setNotes: (s: string) => void;
 }
 
-function newCase(workflowId: string, initialAnswers: Record<string, string> = {}): TriageCase {
+function newCase(
+  workflowId: string,
+  initialAnswers: Record<string, string> = {},
+  initialNotes = '',
+): TriageCase {
   return {
     id: uid('case'),
     workflowId,
@@ -50,7 +58,7 @@ function newCase(workflowId: string, initialAnswers: Record<string, string> = {}
     taShown: {},
     phase: 'workflow',
     notifsSent: false,
-    notes: '',
+    notes: initialNotes,
   };
 }
 
@@ -75,8 +83,8 @@ export const useTriageStore = create<TriageRuntime>()(
       cases: [],
       activeCaseId: null,
 
-      startCase: (workflowId, initialAnswers) => {
-        const c = newCase(workflowId, initialAnswers);
+      startCase: (workflowId, initialAnswers, initialNotes) => {
+        const c = newCase(workflowId, initialAnswers, initialNotes);
         set((s) => ({ cases: [...s.cases, c], activeCaseId: c.id }));
         return c.id;
       },
