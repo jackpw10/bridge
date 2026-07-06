@@ -4,7 +4,7 @@ import { useAppStore } from '../store/appStore';
 import { useTriageStore } from '../store/triageStore';
 import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
-import { Input, Select, Textarea } from '../components/ui/Input';
+import { Input, Select } from '../components/ui/Input';
 import { Combobox } from '../components/ui/Combobox';
 import { TriageTabs } from '../components/triage/TriageTabs';
 import type { InitialCallQuestion } from '../types';
@@ -179,7 +179,7 @@ function InitialQuestionRow({
         />
       )}
       {q.type === 'text' && (
-        <Textarea
+        <Input
           value={value}
           onChange={(e) => onChange(e.target.value)}
           placeholder="Type here…"
