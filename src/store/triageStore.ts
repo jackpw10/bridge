@@ -9,6 +9,9 @@ type Phase = 'workflow' | 'result';
 export interface TriageCase {
   id: string;
   workflowId: string;
+  // Answers collected on the "New Case" screen BEFORE a call type is picked
+  // (see admin: Initial Call Questions). Frozen once the case starts.
+  initialAnswers: Record<string, string>;
   answers: Record<string, string>;
   currentIndex: number;
   taShown: Record<string, boolean>;
@@ -22,7 +25,7 @@ interface TriageRuntime {
   activeCaseId: string | null;
 
   // ----- case lifecycle -----
-  startCase: (workflowId: string) => string; // returns the new case id
+  startCase: (workflowId: string, initialAnswers?: Record<string, string>) => string; // returns the new case id
   switchCase: (caseId: string) => void;
   closeCase: (caseId: string) => void;
 
@@ -37,10 +40,11 @@ interface TriageRuntime {
   setNotes: (s: string) => void;
 }
 
-function newCase(workflowId: string): TriageCase {
+function newCase(workflowId: string, initialAnswers: Record<string, string> = {}): TriageCase {
   return {
     id: uid('case'),
     workflowId,
+    initialAnswers,
     answers: {},
     currentIndex: 0,
     taShown: {},
@@ -71,8 +75,8 @@ export const useTriageStore = create<TriageRuntime>()(
       cases: [],
       activeCaseId: null,
 
-      startCase: (workflowId) => {
-        const c = newCase(workflowId);
+      startCase: (workflowId, initialAnswers) => {
+        const c = newCase(workflowId, initialAnswers);
         set((s) => ({ cases: [...s.cases, c], activeCaseId: c.id }));
         return c.id;
       },
@@ -130,6 +134,7 @@ export const useTriageStore = create<TriageRuntime>()(
             return {
               id: String(cc.id ?? uid('case')),
               workflowId: String(cc.workflowId ?? ''),
+              initialAnswers: (cc.initialAnswers as Record<string, string>) ?? {},
               answers: (cc.answers as Record<string, string>) ?? {},
               currentIndex: typeof cc.currentIndex === 'number' ? cc.currentIndex : 0,
               taShown: (cc.taShown as Record<string, boolean>) ?? {},
@@ -141,7 +146,7 @@ export const useTriageStore = create<TriageRuntime>()(
           activeCaseId: (r.activeCaseId as string | null) ?? null,
         };
       },
-      version: 2,
+      version: 3,
     }
   )
 );

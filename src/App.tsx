@@ -23,6 +23,7 @@ import { AdminReasonsPage } from './pages/admin/AdminReasons';
 import { AdminReferenceCardsPage } from './pages/admin/AdminReferenceCards';
 import { AdminUsersPage } from './pages/admin/AdminUsers';
 import { AdminHealthAuthoritiesPage } from './pages/admin/AdminHealthAuthorities';
+import { AdminInitialCallQuestionsPage } from './pages/admin/AdminInitialCallQuestions';
 import { useNotificationPoll } from './hooks/useNotificationPoll';
 import './App.css';
 
@@ -219,6 +220,14 @@ export default function App() {
           element={
             <RequireAdmin>
               <AdminReferenceCardsPage />
+            </RequireAdmin>
+          }
+        />
+        <Route
+          path="/admin/initial-questions"
+          element={
+            <RequireAdmin>
+              <AdminInitialCallQuestionsPage />
             </RequireAdmin>
           }
         />

@@ -130,6 +130,15 @@ create table if not exists public.reference_cards (
   steps jsonb not null default '[]'::jsonb
 );
 
+create table if not exists public.initial_call_questions (
+  id         text primary key,
+  text       text not null,
+  type       text not null default 'text' check (type in ('yesno','dropdown','text')),
+  options    jsonb not null default '[]'::jsonb,
+  position   integer not null default 0,
+  created_at timestamptz not null default now()
+);
+
 -- --------------------- COLUMN PATCHES FOR EXISTING TABLES --------------------
 -- `create table if not exists` does NOT add new columns to a table that
 -- already exists. These `add column if not exists` statements bring an older
@@ -178,6 +187,7 @@ alter table public.diagnoses              enable row level security;
 alter table public.card_overrides         enable row level security;
 alter table public.override_reasons       enable row level security;
 alter table public.reference_cards        enable row level security;
+alter table public.initial_call_questions enable row level security;
 alter table public.notifications          enable row level security;
 
 -- Drop any existing policies so this script is re-runnable
@@ -248,6 +258,10 @@ create policy "or_admin" on public.override_reasons for all    to authenticated 
 create policy "rc_read"  on public.reference_cards for select to authenticated using (true);
 create policy "rc_admin" on public.reference_cards for all    to authenticated using (public.is_admin()) with check (public.is_admin());
 
+-- ---- initial_call_questions ----
+create policy "icq_read"  on public.initial_call_questions for select to authenticated using (true);
+create policy "icq_admin" on public.initial_call_questions for all    to authenticated using (public.is_admin()) with check (public.is_admin());
+
 -- ---- notifications ----
 -- Notifications are shared workspace data:
 --  * any signed-in user can read all of them
@@ -265,7 +279,7 @@ declare
   table_list text[] := array[
     'profiles', 'health_authorities', 'facilities', 'specialty_services',
     'workflows', 'call_types', 'diagnoses', 'card_overrides',
-    'override_reasons', 'reference_cards', 'notifications'
+    'override_reasons', 'reference_cards', 'initial_call_questions', 'notifications'
   ];
 begin
   for t in

@@ -17,6 +17,7 @@ export function ResultPage() {
   const diagnoses = useAppStore((s) => s.diagnoses);
   const refCards = useAppStore((s) => s.refCards);
   const reasons = useAppStore((s) => s.reasons);
+  const initialQs = useAppStore((s) => s.initialCallQuestions);
   const notifications = useAppStore((s) => s.notifications);
   const setNotifications = useAppStore((s) => s.setNotifications);
   const session = useAppStore((s) => s.session);
@@ -89,7 +90,7 @@ export function ResultPage() {
   }, [t, notifications, facilities, specialty, diagnoses, session, setNotifications]);
 
   // ----- case summary text -----
-  const summary = useMemo(() => buildSummary(), [t, facilities, specialty, diagnoses, filteredNotifReqs, reasons]);
+  const summary = useMemo(() => buildSummary(), [t, facilities, specialty, diagnoses, filteredNotifReqs, reasons, initialQs]);
 
   function buildSummary(): string {
     const lines: string[] = [];
@@ -100,6 +101,16 @@ export function ResultPage() {
     lines.push(`Sending: ${t.sendingFacility?.name ?? '—'}`);
     if (t.destFacility) lines.push(`Receiving: ${t.destFacility.name}`);
     lines.push('');
+
+    // ---- Initial call answers (asked before the call type was picked) ----
+    const answeredInitials = initialQs.filter((q) => (t.initialAnswers[q.id] ?? '').trim());
+    if (answeredInitials.length > 0) {
+      lines.push('Initial call answers:');
+      for (const q of answeredInitials) {
+        lines.push(`  • ${q.text}: ${t.initialAnswers[q.id] || '—'}`);
+      }
+      lines.push('');
+    }
 
     // ---- All triage answers (every visible workflow question) ----
     lines.push('Triage answers:');
@@ -226,6 +237,20 @@ export function ResultPage() {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         {/* Main column (2/3) */}
         <div className="lg:col-span-2 space-y-4">
+          {initialQs.some((q) => (t.initialAnswers[q.id] ?? '').trim()) && (
+            <Card title="Initial call answers">
+              <ul className="text-sm space-y-1">
+                {initialQs
+                  .filter((q) => (t.initialAnswers[q.id] ?? '').trim())
+                  .map((q) => (
+                    <li key={q.id}>
+                      <span className="text-slate-500">{q.text}:</span>{' '}
+                      <span className="font-medium">{t.initialAnswers[q.id]}</span>
+                    </li>
+                  ))}
+              </ul>
+            </Card>
+          )}
           {t.acQueue.length === 0 ? (
             <Card>
               <div className="text-sm text-slate-500">

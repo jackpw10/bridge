@@ -67,6 +67,17 @@ export interface Workflow {
   processSteps: ProcessStep[];
 }
 
+// ---------- Initial Call Questions ----------
+// Questions the user answers on the "New Case" screen BEFORE picking a call
+// type. Collected regardless of call type; the answers ride with the case
+// and appear on the Result summary.
+export interface InitialCallQuestion {
+  id: string;
+  type: 'yesno' | 'dropdown' | 'text';
+  text: string;
+  options?: string[];
+}
+
 // ---------- Health Authorities ----------
 export interface HealthAuthority {
   id: string;

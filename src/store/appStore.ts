@@ -5,6 +5,7 @@ import type {
   Diagnosis,
   Facility,
   HealthAuthority,
+  InitialCallQuestion,
   Notification,
   OverrideReason,
   ReferenceCard,
@@ -17,6 +18,7 @@ import {
   type CardOverrideRow,
   type DiagnosisRow,
   type FacilityRow,
+  type InitialCallQuestionRow,
   type NotificationRow,
   type ReferenceCardRow,
   type SpecialtyServiceRow,
@@ -29,6 +31,8 @@ import {
   svcToRow,
   dxFromRow,
   dxToRow,
+  icqFromRow,
+  icqToRow,
   workflowFromRow,
   workflowToRow,
   ovFromRow,
@@ -72,6 +76,7 @@ interface AppState {
   refCards: ReferenceCard[];
   notifications: Notification[];
   healthAuthorities: HealthAuthority[];
+  initialCallQuestions: InitialCallQuestion[];
 
   setSession: (s: AppSession | null) => void;
   setLastError: (msg: string | null) => void;
@@ -85,6 +90,7 @@ interface AppState {
   setReasons: (next: OverrideReason[]) => Promise<void>;
   setRefCards: (next: ReferenceCard[]) => Promise<void>;
   setHealthAuthorities: (next: HealthAuthority[]) => Promise<void>;
+  setInitialCallQuestions: (next: InitialCallQuestion[]) => Promise<void>;
 
   setNotifications: (next: Notification[]) => Promise<void>;
 }
@@ -105,6 +111,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   refCards: [],
   notifications: [],
   healthAuthorities: [],
+  initialCallQuestions: [],
 
   setSession: (s) => set({ session: s }),
   setLastError: (msg) => set({ lastError: msg }),
@@ -157,6 +164,15 @@ export const useAppStore = create<AppState>((set, get) => ({
     const prev = get().healthAuthorities;
     set({ healthAuthorities: next });
     await diffSyncList(prev, next, 'health_authorities');
+  },
+  setInitialCallQuestions: async (next) => {
+    const prev = get().initialCallQuestions;
+    set({ initialCallQuestions: next });
+    await diffSyncList(
+      prev.map((q, i) => icqToRow(q, i)),
+      next.map((q, i) => icqToRow(q, i)),
+      'initial_call_questions',
+    );
   },
 
   setNotifications: async (next) => {
@@ -241,25 +257,19 @@ async function diffSyncList<R extends { id: string }>(
 // yet applied) doesn't break the whole load.
 // =========================================================================
 async function backfillCodes() {
-  // ---- Code letters: one per sub-version, or one on the call type when it
-  //      has no sub-versions. All letters are globally unique. ----
+  // ---- Code letters: one per call type. All letters are globally unique. ----
   const { data: cts, error: ctErr } = await supabase
     .from('call_types')
-    .select('id, name, letter, sub_versions');
+    .select('id, name, letter');
   if (ctErr) throw ctErr;
-  type SubV = { id: string; name: string; letter?: string };
   const ctRows = (cts ?? []) as Array<{
     id: string;
     name: string;
     letter: string | null;
-    sub_versions: SubV[] | null;
   }>;
   const usedLetters = new Set<string>();
   for (const r of ctRows) {
     if (r.letter) usedLetters.add(r.letter.toUpperCase());
-    for (const sv of r.sub_versions ?? []) {
-      if (sv.letter) usedLetters.add(sv.letter.toUpperCase());
-    }
   }
   let charCode = 65; // 'A'
   const nextLetter = () => {
@@ -270,14 +280,8 @@ async function backfillCodes() {
     return l;
   };
   for (const r of [...ctRows].sort((a, b) => a.name.localeCompare(b.name))) {
-    const subs = r.sub_versions ?? [];
-    if (subs.length === 0) {
-      if (!r.letter) {
-        await supabase.from('call_types').update({ letter: nextLetter() }).eq('id', r.id);
-      }
-    } else if (subs.some((sv) => !sv.letter)) {
-      const next = subs.map((sv) => (sv.letter ? sv : { ...sv, letter: nextLetter() }));
-      await supabase.from('call_types').update({ sub_versions: next }).eq('id', r.id);
+    if (!r.letter) {
+      await supabase.from('call_types').update({ letter: nextLetter() }).eq('id', r.id);
     }
   }
 
@@ -425,6 +429,7 @@ async function doLoadAllData(): Promise<void> {
       { data: refRows },
       { data: haRows },
       { data: notifRows },
+      icqRes,
     ] = await Promise.all([
       supabase.from('call_types').select('*'),
       supabase.from('workflows').select('*').order('position'),
@@ -436,6 +441,9 @@ async function doLoadAllData(): Promise<void> {
       supabase.from('reference_cards').select('*'),
       supabase.from('health_authorities').select('*'),
       supabase.from('notifications').select('*').order('ts', { ascending: false }),
+      // Table may not exist yet on older DBs; tolerate the error so the app
+      // still loads. Users get an empty list until they run the migration.
+      supabase.from('initial_call_questions').select('*').order('position'),
     ]);
 
     useAppStore.setState({
@@ -449,6 +457,9 @@ async function doLoadAllData(): Promise<void> {
       refCards: (refRows as ReferenceCardRow[] | null ?? []).map(refCardFromRow),
       healthAuthorities: (haRows ?? []).map(haFromRow),
       notifications: (notifRows as NotificationRow[] | null ?? []).map(notifFromRow),
+      initialCallQuestions: icqRes.error
+        ? []
+        : ((icqRes.data as InitialCallQuestionRow[] | null) ?? []).map(icqFromRow),
       loading: false,
       error: null,
     });
@@ -471,6 +482,17 @@ export function startRealtime() {
       if (table === 'workflows') {
         const { data } = await supabase.from('workflows').select('*').order('position');
         set({ workflows: (data as WorkflowRow[] | null ?? []).map(workflowFromRow) });
+        return;
+      }
+      if (table === 'initial_call_questions') {
+        const { data } = await supabase
+          .from('initial_call_questions')
+          .select('*')
+          .order('position');
+        set({
+          initialCallQuestions:
+            ((data as InitialCallQuestionRow[] | null) ?? []).map(icqFromRow),
+        });
         return;
       }
       const { data } = await supabase.from(table).select('*');
@@ -514,6 +536,7 @@ export function startRealtime() {
     'override_reasons',
     'reference_cards',
     'health_authorities',
+    'initial_call_questions',
   ];
 
   for (const t of tables) {

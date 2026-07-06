@@ -48,6 +48,10 @@ to users.
 - **Transport Advisor (TA) Card** — a service- and HA-scoped card that
   must be acknowledged mid-triage before the user can advance past the
   referral question.
+- **Initial Call Question** — a question asked on the "New Case" screen
+  *before* the user picks a call type. Applies to every case regardless
+  of call type. Types: `yesno`, `dropdown`, `text`. Admin-configurable.
+  Answers are frozen on the case and appear on the Result summary.
 
 Removed in this rewrite (no longer part of the domain):
 
@@ -121,14 +125,18 @@ Diagnosis, OverrideReason, HealthAuthority, ReferenceCard, Notification — simp
 
 - FR-CASE-1 — A user can have multiple triage cases open simultaneously.
   Each case is identified by a generated id and tracks: `workflowId`,
-  `answers`, `currentIndex`, `taShown`, `phase` (`workflow` | `result`),
-  `notifsSent`, `notes`.
+  `initialAnswers`, `answers`, `currentIndex`, `taShown`, `phase`
+  (`workflow` | `result`), `notifsSent`, `notes`.
 - FR-CASE-2 — Open cases are persisted to **sessionStorage** under the key
   `bridge-triage-cases` so a page refresh keeps every open tab. They are
   cleared when the browser tab is closed.
-- FR-CASE-3 — Starting a case requires the user to pick a Call Type (which
-  resolves to its Workflow). The case is created with `currentIndex = 0`
-  and `phase = 'workflow'`.
+- FR-CASE-3 — Starting a case is a two-step flow on the "New Case" screen:
+  1. Answer every configured **Initial Call Question**. If none are
+     configured, this step is skipped and the user goes straight to
+     step 2.
+  2. Pick a Call Type, click **Start Case**. The case is created with
+     `initialAnswers` frozen from step 1, `currentIndex = 0`, and
+     `phase = 'workflow'`.
 - FR-CASE-4 — A tab bar shows every open case; clicking switches the active
   case and navigates to the appropriate route (`/triage/run`,
   `/triage/result`).
@@ -201,6 +209,9 @@ Diagnosis, OverrideReason, HealthAuthority, ReferenceCard, Notification — simp
 
 ### 5.5 Result page
 
+- FR-RES-0 — Displays the **Initial call answers** captured on the "New
+  Case" screen at the top of the main column (only when at least one is
+  non-empty). The same answers are included in the case summary text.
 - FR-RES-1 — Renders one Process Card per `(service, destinationFacility)`
   in the case's AC queue. Each card is
   `service.templates[callTypeId].steps` plus any `CardOverride` for
@@ -243,6 +254,9 @@ Diagnosis, OverrideReason, HealthAuthority, ReferenceCard, Notification — simp
 Each admin page provides full CRUD over its entity and writes through to
 Supabase. Idempotent `diffSyncList` is used to upsert collections.
 
+- FR-ADM-0 — **Initial Call Questions**: name, ordered list of questions
+  (yes/no, dropdown with options, free text). Editable via drag-to-reorder.
+  Applied on the "New Case" screen before the call-type picker.
 - FR-ADM-1 — **Call Types**: name + single-character letter (no sub-versions).
 - FR-ADM-2 — **Workflows**: bound to a Call Type. Editor exposes:
   - Questions list (with type, options, conditional visibility on other
@@ -315,9 +329,13 @@ Set Referral Patterns on each sending facility per primary service
 ### 6.2 Run a triage call (happy path)
 
 ```
-1. User clicks "New Case" and picks a Call Type
+1. User clicks "New Case".
+   → If any Initial Call Questions exist, answer them first.
+   → Click "Next — pick call type →".
+   → Pick a Call Type → Start Case.
    → A new triage case is opened in a new tab.
    → Phase = workflow, currentIndex = 0.
+   → initialAnswers are frozen on the case.
 
 2. Initial Triage Questions
    For each visible question:

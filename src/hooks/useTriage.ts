@@ -115,6 +115,7 @@ export interface UseTriageResult {
   callTypeName: string;
   hasReferralQuestion: boolean;
 
+  initialAnswers: Record<string, string>;
   answers: Record<string, string>;
   currentIndex: number;
   taShown: Record<string, boolean>;
@@ -168,6 +169,7 @@ export function useTriage(): UseTriageResult {
   );
 
   const activeWorkflowId = activeCase?.workflowId ?? '';
+  const initialAnswers = activeCase?.initialAnswers ?? EMPTY_STR_REC;
   const answers = activeCase?.answers ?? EMPTY_STR_REC;
   const currentIndex = activeCase?.currentIndex ?? 0;
   const taShown = activeCase?.taShown ?? EMPTY_BOOL_REC;
@@ -251,6 +253,7 @@ export function useTriage(): UseTriageResult {
     callTypeId,
     callTypeName,
     hasReferralQuestion,
+    initialAnswers,
     answers,
     currentIndex,
     taShown,

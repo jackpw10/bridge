@@ -11,6 +11,7 @@ import type {
   Diagnosis,
   Facility,
   HealthAuthority,
+  InitialCallQuestion,
   Notification,
   OverrideReason,
   ProcessCardStep,
@@ -317,6 +318,37 @@ export function notifToRow(n: Notification): NotificationRow {
     body: n.body,
     acked_by: n.ackedBy,
     deleted_for: n.deletedFor,
+  };
+}
+
+// ---------- Initial call questions ----------
+export interface InitialCallQuestionRow {
+  id: string;
+  text: string;
+  type: string;
+  options: unknown;
+  position: number;
+}
+
+export function icqFromRow(r: InitialCallQuestionRow): InitialCallQuestion {
+  const t = (r.type === 'yesno' || r.type === 'dropdown' || r.type === 'text')
+    ? r.type
+    : 'text';
+  return {
+    id: r.id,
+    type: t,
+    text: r.text,
+    options: Array.isArray(r.options) ? (r.options as string[]) : undefined,
+  };
+}
+
+export function icqToRow(q: InitialCallQuestion, position: number): InitialCallQuestionRow {
+  return {
+    id: q.id,
+    text: q.text,
+    type: q.type,
+    options: q.options ?? [],
+    position,
   };
 }
 
