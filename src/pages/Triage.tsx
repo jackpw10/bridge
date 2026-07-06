@@ -1,4 +1,4 @@
-import { useEffect, useMemo } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useTriage } from '../hooks/useTriage';
 import { useAppStore } from '../store/appStore';
@@ -9,6 +9,7 @@ import { Badge } from '../components/ui/Badge';
 import { NotesLog } from '../components/ui/NotesLog';
 import { QuestionRenderer } from '../components/triage/QuestionRenderer';
 import { TriageTabs } from '../components/triage/TriageTabs';
+import { CaseEventLog } from '../components/triage/CaseEventLog';
 import type { TACard } from '../types';
 
 interface TaItem {
@@ -30,6 +31,27 @@ export function TriagePage() {
   }, [t.activeWorkflow, t.phase, nav]);
 
   const isAtEnd = t.currentIndex >= t.visibleQuestions.length;
+
+  // ---- Audit log: log the question we just left every time currentIndex
+  // advances. Fires regardless of whether advance came from a hotkey,
+  // button, or child-component autoAdvance.
+  const prevIndex = useRef(t.currentIndex);
+  useEffect(() => {
+    const prev = prevIndex.current;
+    if (prev < t.currentIndex && prev < t.visibleQuestions.length) {
+      const leaving = t.visibleQuestions[prev];
+      if (leaving) {
+        const answered = t.answers[leaving.id] ?? '';
+        if (answered) {
+          t.logAction('workflow_answer', `${leaving.text} → ${answered}`, {
+            qid: leaving.id,
+          });
+        }
+      }
+    }
+    prevIndex.current = t.currentIndex;
+  }, [t.currentIndex, t.visibleQuestions, t.answers, t]);
+
   const referralQuestion = t.visibleQuestions.find((q) => q.type === 'referral_resolve');
   const referralAnswered =
     !!referralQuestion && !!t.answers[`${referralQuestion.id}__choice`];
@@ -350,10 +372,16 @@ export function TriagePage() {
             title="Additional Information"
             description="Enter to save a timestamped note."
           >
-            <NotesLog value={t.notes} onChange={t.setNotes} />
+            <NotesLog
+              value={t.notes}
+              onChange={t.setNotes}
+              onEntry={(entry) => t.logAction('note', entry)}
+            />
           </Card>
         </div>
       </div>
+
+      <CaseEventLog events={t.events} />
     </div>
   );
 }

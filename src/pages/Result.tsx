@@ -8,6 +8,7 @@ import { Badge } from '../components/ui/Badge';
 import { Combobox } from '../components/ui/Combobox';
 import { TriageTabs } from '../components/triage/TriageTabs';
 import { ProcessCardLookup } from '../components/triage/ProcessCardLookup';
+import { CaseEventLog } from '../components/triage/CaseEventLog';
 import { uid } from '../utils/id';
 
 export function ResultPage() {
@@ -88,6 +89,18 @@ export function ResultPage() {
     }
     t.markNotifsSent();
   }, [t, notifications, facilities, specialty, diagnoses, session, setNotifications]);
+
+  // Log the phase change into 'result' once, when the user actually reaches
+  // this page for the current case.
+  useEffect(() => {
+    if (t.caseId && t.phase === 'result') {
+      t.logAction('phase_change', 'Reached Result screen', { phase: 'result' });
+    }
+    // Only fires when the caseId changes; a real phase transition also
+    // arrives via a caseId that hasn't logged a phase_change yet. Guarding
+    // by caseId + phase is enough for now.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [t.caseId]);
 
   // ----- case summary text -----
   const summary = useMemo(() => buildSummary(), [t, facilities, specialty, diagnoses, filteredNotifReqs, reasons, initialQs]);
@@ -381,6 +394,8 @@ export function ResultPage() {
       <div className="flex justify-end">
         <Button onClick={completeCase}>Complete case</Button>
       </div>
+
+      <CaseEventLog events={t.events} />
     </div>
   );
 }

@@ -64,7 +64,26 @@ export function TriageStartPage() {
 
   function start() {
     if (!picked) return;
-    startCase(picked, answers, notes);
+    const wf = workflows.find((w) => w.id === picked);
+    const ct = wf ? ctById.get(wf.callTypeId) : undefined;
+    startCase(
+      picked,
+      wf?.name ?? '',
+      wf?.callTypeId ?? '',
+      ct?.name ?? '',
+      answers,
+      notes,
+    );
+    // Immediately after startCase the new case is active, so any additional
+    // logging (e.g. per-answer summaries) can go through logAction. We seed
+    // per-initial-answer events here so the audit trail includes each one
+    // with its own timestamp.
+    const store = useTriageStore.getState();
+    for (const q of initialQs) {
+      const a = (answers[q.id] ?? '').trim();
+      if (!a) continue;
+      store.logAction('initial_answer', `${q.text} → ${a}`, { qid: q.id, answer: a });
+    }
     nav('/triage/run');
   }
 
@@ -112,15 +131,23 @@ export function TriageStartPage() {
                 description="Captured for every case regardless of call type."
               >
                 <div className="space-y-4">
-                  {initialQs.map((q) => (
-                    <InitialQuestionRow
-                      key={q.id}
-                      q={q}
-                      active={firstUnanswered?.id === q.id}
-                      value={answers[q.id] ?? ''}
-                      onChange={(v) => setAnswer(q.id, v)}
-                    />
-                  ))}
+                  {initialQs.map((q, i) => {
+                    const activeIdx = firstUnanswered
+                      ? initialQs.findIndex((x) => x.id === firstUnanswered.id)
+                      : initialQs.length; // all answered
+                    const active = firstUnanswered?.id === q.id;
+                    const locked = i > activeIdx; // future questions disabled
+                    return (
+                      <InitialQuestionRow
+                        key={q.id}
+                        q={q}
+                        active={active}
+                        disabled={locked}
+                        value={answers[q.id] ?? ''}
+                        onChange={(v) => setAnswer(q.id, v)}
+                      />
+                    );
+                  })}
                 </div>
               </Card>
               <div className="flex justify-end">
@@ -217,14 +244,25 @@ function InitialQuestionRow({
   value,
   onChange,
   active,
+  disabled,
 }: {
   q: InitialCallQuestion;
   value: string;
   onChange: (v: string) => void;
   active?: boolean;
+  disabled?: boolean;
 }) {
   return (
-    <div className={active ? 'ring-2 ring-brand-400 rounded-md p-2 -m-2' : ''}>
+    <div
+      className={
+        active
+          ? 'ring-2 ring-brand-400 rounded-md p-2 -m-2'
+          : disabled
+            ? 'opacity-40 pointer-events-none select-none'
+            : ''
+      }
+      aria-disabled={disabled || undefined}
+    >
       <div className="text-sm font-medium text-slate-700 mb-1">{q.text}</div>
       {q.type === 'yesno' && (
         <div className="flex gap-2">
@@ -238,6 +276,7 @@ function InitialQuestionRow({
               key={opt.value}
               variant={value === opt.value ? 'primary' : 'secondary'}
               onClick={() => onChange(opt.value)}
+              disabled={disabled}
             >
               {opt.label}
             </Button>
@@ -251,6 +290,7 @@ function InitialQuestionRow({
           options={(q.options ?? []).map((o) => ({ value: o, label: o }))}
           placeholder="Type to filter…"
           onChange={onChange}
+          disabled={disabled}
         />
       )}
       {q.type === 'text' && (
@@ -258,10 +298,15 @@ function InitialQuestionRow({
           value={value}
           onChange={(e) => onChange(e.target.value)}
           placeholder="Type here…"
+          disabled={disabled}
         />
       )}
       {q.type !== 'yesno' && q.type !== 'dropdown' && q.type !== 'text' && (
-        <Input value={value} onChange={(e) => onChange(e.target.value)} />
+        <Input
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          disabled={disabled}
+        />
       )}
     </div>
   );

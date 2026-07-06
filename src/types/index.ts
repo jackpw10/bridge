@@ -211,6 +211,32 @@ export interface Notification {
   deletedFor: string[];
 }
 
+// ---------- Case audit log ----------
+// One row per action a user takes inside a case, for audit + admin
+// active-case monitoring. Stored server-side in public.case_events.
+export interface CaseEvent {
+  id: string;
+  caseId: string;
+  actor: string;              // auth.users.id (uuid) of the actor
+  ts: number;                 // Date.now() ms
+  eventType: string;          // 'case_started' | 'initial_answer' | 'workflow_answer' | 'note' | 'phase_change' | 'case_ended' | ...
+  summary: string;            // human-readable one-line description
+  detail: Record<string, unknown>;
+}
+
+// Case metadata for admin case-history views. One row per case in
+// public.cases.
+export interface CaseSummary {
+  id: string;
+  actor: string;
+  workflowId: string | null;
+  workflowName: string;       // denormalized for admin display
+  callTypeId: string | null;
+  callTypeName: string;       // denormalized for admin display
+  startedAt: number;
+  endedAt: number | null;
+}
+
 // ---------- Triage runtime ----------
 export interface AcQueueItem {
   destFacId: string;

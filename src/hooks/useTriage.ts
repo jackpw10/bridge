@@ -4,6 +4,7 @@ import { useTriageStore } from '../store/triageStore';
 import type {
   AcQueueItem,
   CardOverridePart,
+  CaseEvent,
   Facility,
   ProcessCardStep,
   ProcessStep,
@@ -17,6 +18,7 @@ import type {
 // produce a new object each render (which would thrash memo dependencies).
 const EMPTY_STR_REC: Record<string, string> = {};
 const EMPTY_BOOL_REC: Record<string, boolean> = {};
+const EMPTY_EVENTS: CaseEvent[] = [];
 
 function isQuestionVisible(
   q: WorkflowQuestion,
@@ -122,6 +124,7 @@ export interface UseTriageResult {
   phase: 'workflow' | 'result';
   notifsSent: boolean;
   notes: string;
+  events: CaseEvent[];
 
   visibleQuestions: WorkflowQuestion[];
   currentQuestion: WorkflowQuestion | undefined;
@@ -145,6 +148,7 @@ export interface UseTriageResult {
   closeActiveCase: () => string;
   markNotifsSent: () => void;
   setNotes: (s: string) => void;
+  logAction: (type: string, summary: string, detail?: Record<string, unknown>) => void;
 
   getActiveCardSteps: (
     svcId: string,
@@ -176,6 +180,7 @@ export function useTriage(): UseTriageResult {
   const phase: 'workflow' | 'result' = activeCase?.phase ?? 'workflow';
   const notifsSent = activeCase?.notifsSent ?? false;
   const notes = activeCase?.notes ?? '';
+  const events = activeCase?.events ?? EMPTY_EVENTS;
 
   const setAnswer = useTriageStore((s) => s.setAnswer);
   const goPrev = useTriageStore((s) => s.goPrev);
@@ -186,6 +191,7 @@ export function useTriage(): UseTriageResult {
   const closeCase = useTriageStore((s) => s.closeCase);
   const markNotifsSent = useTriageStore((s) => s.markNotifsSent);
   const setNotes = useTriageStore((s) => s.setNotes);
+  const logAction = useTriageStore((s) => s.logAction);
 
   const closeActiveCase = useCallback((): string => {
     if (!activeCaseId) return '/triage';
@@ -260,6 +266,7 @@ export function useTriage(): UseTriageResult {
     phase,
     notifsSent,
     notes,
+    events,
     caseId: activeCaseId,
     visibleQuestions,
     currentQuestion: visibleQuestions[currentIndex],
@@ -278,6 +285,7 @@ export function useTriage(): UseTriageResult {
     closeActiveCase,
     markNotifsSent,
     setNotes,
+    logAction,
     getActiveCardSteps: getActiveCardStepsWrapped,
   };
 }

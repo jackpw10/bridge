@@ -179,6 +179,35 @@ create table if not exists public.notifications (
 
 create index if not exists notifications_ts_idx on public.notifications (ts desc);
 
+-- ------------------------------ CASE AUDIT LOG -------------------------------
+create table if not exists public.cases (
+  id             text primary key,
+  actor          uuid not null references auth.users(id) on delete cascade,
+  workflow_id    text,
+  workflow_name  text not null default '',
+  call_type_id   text,
+  call_type_name text not null default '',
+  started_at     bigint not null,
+  ended_at       bigint,
+  created_at     timestamptz not null default now()
+);
+create index if not exists cases_actor_idx   on public.cases (actor);
+create index if not exists cases_started_idx on public.cases (started_at desc);
+create index if not exists cases_active_idx  on public.cases (ended_at) where ended_at is null;
+
+create table if not exists public.case_events (
+  id          text primary key,
+  case_id     text not null,
+  actor       uuid not null references auth.users(id) on delete cascade,
+  ts          bigint not null,
+  event_type  text not null,
+  summary     text not null,
+  detail      jsonb not null default '{}'::jsonb,
+  created_at  timestamptz not null default now()
+);
+create index if not exists case_events_case_ts_idx on public.case_events (case_id, ts);
+create index if not exists case_events_ts_idx      on public.case_events (ts desc);
+
 -- ============================== RLS POLICIES =================================
 alter table public.profiles               enable row level security;
 alter table public.health_authorities     enable row level security;
@@ -191,6 +220,8 @@ alter table public.card_overrides         enable row level security;
 alter table public.override_reasons       enable row level security;
 alter table public.reference_cards        enable row level security;
 alter table public.initial_call_questions enable row level security;
+alter table public.cases                  enable row level security;
+alter table public.case_events            enable row level security;
 alter table public.notifications          enable row level security;
 
 -- Drop any existing policies so this script is re-runnable
@@ -265,6 +296,15 @@ create policy "rc_admin" on public.reference_cards for all    to authenticated u
 create policy "icq_read"  on public.initial_call_questions for select to authenticated using (true);
 create policy "icq_admin" on public.initial_call_questions for all    to authenticated using (public.is_admin()) with check (public.is_admin());
 
+-- ---- cases ----
+create policy "cases_read"   on public.cases for select to authenticated using (actor = auth.uid() or public.is_admin());
+create policy "cases_insert" on public.cases for insert to authenticated with check (actor = auth.uid());
+create policy "cases_update" on public.cases for update to authenticated using (actor = auth.uid()) with check (actor = auth.uid());
+
+-- ---- case_events ----
+create policy "case_events_read"   on public.case_events for select to authenticated using (actor = auth.uid() or public.is_admin());
+create policy "case_events_insert" on public.case_events for insert to authenticated with check (actor = auth.uid());
+
 -- ---- notifications ----
 -- Notifications are shared workspace data:
 --  * any signed-in user can read all of them
@@ -282,7 +322,8 @@ declare
   table_list text[] := array[
     'profiles', 'health_authorities', 'facilities', 'specialty_services',
     'workflows', 'call_types', 'diagnoses', 'card_overrides',
-    'override_reasons', 'reference_cards', 'initial_call_questions', 'notifications'
+    'override_reasons', 'reference_cards', 'initial_call_questions',
+    'cases', 'case_events', 'notifications'
   ];
 begin
   for t in

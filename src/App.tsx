@@ -24,6 +24,7 @@ import { AdminReferenceCardsPage } from './pages/admin/AdminReferenceCards';
 import { AdminUsersPage } from './pages/admin/AdminUsers';
 import { AdminHealthAuthoritiesPage } from './pages/admin/AdminHealthAuthorities';
 import { AdminInitialCallQuestionsPage } from './pages/admin/AdminInitialCallQuestions';
+import { AdminCaseHistoryPage } from './pages/admin/AdminCaseHistory';
 import { useNotificationPoll } from './hooks/useNotificationPoll';
 import './App.css';
 
@@ -228,6 +229,14 @@ export default function App() {
           element={
             <RequireAdmin>
               <AdminInitialCallQuestionsPage />
+            </RequireAdmin>
+          }
+        />
+        <Route
+          path="/admin/case-history"
+          element={
+            <RequireAdmin>
+              <AdminCaseHistoryPage />
             </RequireAdmin>
           }
         />

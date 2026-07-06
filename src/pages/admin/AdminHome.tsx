@@ -11,6 +11,7 @@ const tiles = [
   { to: '/admin/diagnoses', title: 'Diagnoses', desc: 'Master list of diagnoses with optional notification triggers.' },
   { to: '/admin/reasons', title: 'Override reasons', desc: 'Reasons offered when a user overrides a referral pattern.' },
   { to: '/admin/reference-cards', title: 'Reference cards', desc: 'Quick-lookup cards available from the result screen.' },
+  { to: '/admin/case-history', title: 'Case history', desc: 'Live and past cases with a full audit log of every user action.' },
 ];
 
 export function AdminHomePage() {
